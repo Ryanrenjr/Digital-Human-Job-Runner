@@ -186,7 +186,7 @@ export function JobDetail({ job, log, onClose, onRefreshLog, onCancel, onReset, 
           <div className="detail-section">
             <div className="output-actions">
               <button className="btn btn-primary btn-sm" onClick={handleDownloadVoice}>
-                ⬇ 下载 voice.wav
+                {t.detail.downloadVoice}
               </button>
             </div>
             <Row label={t.detail.windowsOutput} value={paths.windows_desktop_output} mono />

@@ -43,7 +43,7 @@ export default function App() {
     () => window.location.hash === '#training' ? 'training' : 'jobs'
   )
   const [language,            setLanguage]            = useState(
-    () => localStorage.getItem('dhjr_language') || 'en'
+    () => localStorage.getItem('dhjr_language') || 'zh'
   )
   const [voiceProfiles,       setVoiceProfiles]       = useState(loadVoiceProfiles)
 
@@ -89,7 +89,7 @@ export default function App() {
   const loadBackgrounds = useCallback(async () => {
     try   { setBackgrounds(await api.getBackgrounds()) }
     catch (e) { console.warn('backgrounds:', e) }
-  }, [])
+  }, [t.messages.backendConnectionFailed])
 
   const loadJobs = useCallback(async () => {
     try   { setJobs(await api.getJobs()) }
@@ -104,7 +104,7 @@ export default function App() {
     } catch (e) {
       // If we've never loaded successfully, surface error; otherwise keep stale data silently
       setQueueStatus(prev => {
-        if (prev === null) setQueueError(e.message || 'Failed to reach backend')
+        if (prev === null) setQueueError(e.detail || e.message || t.messages.backendConnectionFailed)
         return prev
       })
     } finally {
@@ -224,7 +224,7 @@ export default function App() {
               autoOn ? t.messages.jobQueuedAutoRun : t.messages.jobCreatedAutoRunOff,
             )
           } else {
-            showBanner('error', `${t.messages.jobCreated}, but could not start: ${e.detail}`)
+            showBanner('error', `${t.messages.createdButCouldNotStart}: ${e.detail || e.message || t.messages.unknownError}`)
           }
         }
       } else {
@@ -233,7 +233,7 @@ export default function App() {
       await loadJobs()
       setSelectedJobId(job.job_id)
     } catch (e) {
-      showBanner('error', `${t.messages.failCreate}: ${e.detail || e.message || 'Unknown error'}`)
+      showBanner('error', `${t.messages.failCreate}: ${e.detail || e.message || t.messages.unknownError}`)
     } finally {
       setIsSubmitting(false)
     }

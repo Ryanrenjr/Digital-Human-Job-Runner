@@ -39,11 +39,11 @@ export function Header({ online, language, onLanguageChange, activePage, onPageC
             <button
               className={`lang-btn${language === 'en' ? ' active' : ''}`}
               onClick={() => onLanguageChange('en')}
-            >EN</button>
+            >{t.header.englishToggle}</button>
             <button
               className={`lang-btn${language === 'zh' ? ' active' : ''}`}
               onClick={() => onLanguageChange('zh')}
-            >中</button>
+            >{t.header.chineseToggle}</button>
           </div>
           <div className="status-indicator">
             <span className={dotClass} />
