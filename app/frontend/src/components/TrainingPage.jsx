@@ -20,22 +20,116 @@ function formatMinutes(seconds) {
   return (seconds / 60).toFixed(1)
 }
 
-function loadMediaDuration(file) {
+function formatFileSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0M'
+  return `${(bytes / 1024 / 1024).toFixed(1)}M`
+}
+
+function loadMediaInfo(file) {
   return new Promise(resolve => {
     const url = URL.createObjectURL(file)
     const media = document.createElement(file.type.startsWith('video/') ? 'video' : 'audio')
     media.preload = 'metadata'
     media.onloadedmetadata = () => {
-      const duration = media.duration || 0
+      const info = {
+        duration: media.duration || 0,
+        width: media.videoWidth || 0,
+        height: media.videoHeight || 0,
+      }
       URL.revokeObjectURL(url)
-      resolve(duration)
+      resolve(info)
     }
     media.onerror = () => {
       URL.revokeObjectURL(url)
-      resolve(0)
+      resolve({ duration: 0, width: 0, height: 0 })
     }
     media.src = url
   })
+}
+
+function getScoreLevel(score, t) {
+  if (score >= 85) return t.training.scoreExcellent
+  if (score >= 70) return t.training.scoreGood
+  if (score >= 50) return t.training.scoreUsable
+  return t.training.scoreNeedsWork
+}
+
+function scoreVideo(video, videoInfo, t) {
+  if (!video) {
+    return {
+      score: 0,
+      level: t.training.scoreWaiting,
+      checks: [
+        { ok: false, text: t.training.videoScoreUploadFirst },
+      ],
+    }
+  }
+
+  const duration = videoInfo.duration || 0
+  const width = videoInfo.width || 0
+  const height = videoInfo.height || 0
+  const isCommonFormat = /video\/(mp4|quicktime)/.test(video.type) || /\.(mp4|mov)$/i.test(video.name)
+  const hasGoodDuration = duration >= 10 && duration <= 30
+  const hasUsableDuration = duration >= 8 && duration <= 45
+  const hasGoodResolution = width >= 1920 && height >= 1080
+  const hasUsableResolution = width >= 1280 && height >= 720
+
+  let score = 0
+  score += hasGoodDuration ? 30 : hasUsableDuration ? 20 : 8
+  score += hasGoodResolution ? 30 : hasUsableResolution ? 22 : width && height ? 10 : 0
+  score += isCommonFormat ? 20 : 8
+  score += video.size > 2 * 1024 * 1024 ? 10 : 4
+  score += duration > 0 ? 10 : 0
+
+  const capped = Math.min(100, score)
+  return {
+    score: capped,
+    level: getScoreLevel(capped, t),
+    checks: [
+      { ok: hasGoodDuration, text: hasGoodDuration ? t.training.videoScoreDurationGood : t.training.videoScoreDurationWarn },
+      { ok: hasUsableResolution, text: hasUsableResolution ? `${t.training.videoScoreResolutionGood} ${width || '-'}×${height || '-'}` : t.training.videoScoreResolutionWarn },
+      { ok: isCommonFormat, text: isCommonFormat ? t.training.videoScoreFormatGood : t.training.videoScoreFormatWarn },
+      { ok: true, text: t.training.videoScoreManualCheck },
+    ],
+  }
+}
+
+function scoreAudio(audioFiles, totalAudioMinutes, t) {
+  if (!audioFiles.length) {
+    return {
+      score: 0,
+      level: t.training.scoreWaiting,
+      checks: [
+        { ok: false, text: t.training.audioScoreUploadFirst },
+      ],
+    }
+  }
+
+  const commonFormats = audioFiles.filter(file => /\.(wav|mp3|m4a)$/i.test(file.name)).length
+  const usableClips = audioFiles.filter(file => file.duration >= 10).length
+  const longEnoughClips = audioFiles.filter(file => file.duration >= 30).length
+  const formatRatio = commonFormats / audioFiles.length
+  const usableRatio = usableClips / audioFiles.length
+
+  let score = 0
+  score += totalAudioMinutes >= AUDIO_IDEAL_MINUTES ? 45 : totalAudioMinutes >= AUDIO_TARGET_MINUTES ? 38 : totalAudioMinutes >= AUDIO_MIN_MINUTES ? 28 : Math.min(24, totalAudioMinutes * 0.8)
+  score += audioFiles.length >= 10 ? 18 : audioFiles.length >= 5 ? 14 : audioFiles.length >= 2 ? 9 : 4
+  score += usableRatio === 1 ? 16 : usableRatio >= 0.8 ? 12 : 6
+  score += formatRatio === 1 ? 12 : formatRatio >= 0.8 ? 9 : 4
+  score += longEnoughClips >= 3 ? 9 : longEnoughClips >= 1 ? 6 : 2
+
+  const capped = Math.min(100, Math.round(score))
+  return {
+    score: capped,
+    level: getScoreLevel(capped, t),
+    checks: [
+      { ok: totalAudioMinutes >= AUDIO_MIN_MINUTES, text: totalAudioMinutes >= AUDIO_MIN_MINUTES ? t.training.audioScoreMinutesGood : t.training.audioScoreMinutesWarn },
+      { ok: audioFiles.length >= 5, text: audioFiles.length >= 5 ? t.training.audioScoreClipsGood : t.training.audioScoreClipsWarn },
+      { ok: usableRatio >= 0.8, text: usableRatio >= 0.8 ? t.training.audioScoreDurationGood : t.training.audioScoreDurationWarn },
+      { ok: formatRatio >= 0.8, text: formatRatio >= 0.8 ? t.training.audioScoreFormatGood : t.training.audioScoreFormatWarn },
+      { ok: true, text: t.training.audioScoreManualCheck },
+    ],
+  }
 }
 
 function QualityItem({ ok, children }) {
@@ -51,7 +145,7 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
   const videoRef = useRef(null)
   const audioRef = useRef(null)
   const [video, setVideo] = useState(null)
-  const [videoDuration, setVideoDuration] = useState(0)
+  const [videoInfo, setVideoInfo] = useState({ duration: 0, width: 0, height: 0 })
   const [audioFiles, setAudioFiles] = useState([])
   const [profileName, setProfileName] = useState('')
   const [profileLanguage, setProfileLanguage] = useState('zh')
@@ -67,12 +161,17 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
     totalAudioMinutes >= AUDIO_TARGET_MINUTES ? t.training.levelReady :
     totalAudioMinutes >= AUDIO_MIN_MINUTES ? t.training.levelMinimum :
     t.training.levelNeedsMore
+  const videoScore = scoreVideo(video, videoInfo, t)
+  const audioScore = scoreAudio(audioFiles, totalAudioMinutes, t)
+  const overallScore = video && audioFiles.length
+    ? Math.round((videoScore.score + audioScore.score) / 2)
+    : Math.max(videoScore.score, audioScore.score)
 
   const handleVideoChange = async (event) => {
     const file = event.target.files?.[0]
     if (!file) return
     setVideo(file)
-    setVideoDuration(await loadMediaDuration(file))
+    setVideoInfo(await loadMediaInfo(file))
   }
 
   const handleAudioChange = async (event) => {
@@ -82,7 +181,7 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
       id: `${file.name}-${file.size}-${file.lastModified}`,
       name: file.name,
       size: file.size,
-      duration: await loadMediaDuration(file),
+      duration: (await loadMediaInfo(file)).duration,
     })))
     setAudioFiles(prev => [...prev, ...enriched])
     event.target.value = ''
@@ -103,6 +202,7 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
       style: profileStyle,
       mode: totalAudioMinutes >= AUDIO_MIN_MINUTES ? 'lora_finetune' : 'controllable_clone',
       audioMinutes: Number(totalAudioMinutes.toFixed(1)),
+      audioScore: audioScore.score,
       audioFiles: audioFiles.map(file => ({ name: file.name, duration: file.duration, size: file.size })),
       createdAt: new Date().toISOString(),
     })
@@ -119,8 +219,8 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
           <p>{t.training.subtitle}</p>
         </div>
         <div className="training-score">
-          <span>{formatMinutes(totalAudioSeconds)}</span>
-          <small>{t.training.minutesCollected}</small>
+          <span>{overallScore}</span>
+          <small>{t.training.overallScore}</small>
         </div>
       </section>
 
@@ -231,7 +331,7 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
             {video ? (
               <>
                 <strong>{video.name}</strong>
-                <span>{formatDuration(videoDuration)} · {(video.size / 1024 / 1024).toFixed(1)} MB</span>
+                <span>{formatDuration(videoInfo.duration)} · {videoInfo.width || '-'}×{videoInfo.height || '-'} · {formatFileSize(video.size)}</span>
               </>
             ) : (
               <>
@@ -241,9 +341,24 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
             )}
           </div>
 
+          <div className={`quality-score score-${videoScore.score >= 70 ? 'good' : videoScore.score > 0 ? 'warn' : 'empty'}`}>
+            <div className="quality-score-main">
+              <span>{videoScore.score}</span>
+              <div>
+                <strong>{videoScore.level}</strong>
+                <small>{t.training.videoScoreLabel}</small>
+              </div>
+            </div>
+            <ul className="quality-score-checks">
+              {videoScore.checks.map(check => (
+                <QualityItem key={check.text} ok={check.ok}>{check.text}</QualityItem>
+              ))}
+            </ul>
+          </div>
+
           <ul className="quality-list">
             {t.training.videoRules.map((rule, index) => (
-              <QualityItem key={rule} ok={!video || index < 3 || videoDuration >= 8}>
+              <QualityItem key={rule} ok={!video || index < 3 || videoInfo.duration >= 8}>
                 {rule}
               </QualityItem>
             ))}
@@ -284,6 +399,21 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
             </div>
           </div>
 
+          <div className={`quality-score score-${audioScore.score >= 70 ? 'good' : audioScore.score > 0 ? 'warn' : 'empty'}`}>
+            <div className="quality-score-main">
+              <span>{audioScore.score}</span>
+              <div>
+                <strong>{audioScore.level}</strong>
+                <small>{t.training.audioScoreLabel}</small>
+              </div>
+            </div>
+            <ul className="quality-score-checks">
+              {audioScore.checks.map(check => (
+                <QualityItem key={check.text} ok={check.ok}>{check.text}</QualityItem>
+              ))}
+            </ul>
+          </div>
+
           <div className="audio-file-list">
             {audioFiles.length === 0 ? (
               <div className="audio-empty">{t.training.audioEmpty}</div>
@@ -291,7 +421,7 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
               <div className="audio-file" key={file.id}>
                 <div>
                   <strong>{file.name}</strong>
-                  <span>{formatDuration(file.duration)} · {(file.size / 1024 / 1024).toFixed(1)} MB</span>
+                  <span>{formatDuration(file.duration)} · {formatFileSize(file.size)}</span>
                 </div>
                 <button className="btn btn-ghost btn-xs" type="button" onClick={() => removeAudio(file.id)}>
                   {t.training.remove}
