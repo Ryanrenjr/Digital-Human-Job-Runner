@@ -10,12 +10,12 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Optional
+from settings import LOGS_DIR
 
 logger = logging.getLogger(__name__)
 
 OLLAMA_BASE      = "http://127.0.0.1:11434"
 DEFAULT_MODEL    = "qwen2.5:7b"
-LOGS_DIR         = Path("/home/ryanrenjr/AI-Workspace/logs")
 OLLAMA_USER_BIN  = Path.home() / ".local" / "bin" / "ollama"   # user-local fallback
 LLAMA_SERVER_BIN = Path.home() / ".local" / "lib" / "ollama" / "llama-server"
 

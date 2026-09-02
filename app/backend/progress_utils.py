@@ -2,25 +2,17 @@ import json
 import math
 import subprocess
 from pathlib import Path
+from settings import FFPROBE_CANDIDATES, JOBS_DIR, LATENTSYNC_WORK_DIR, OUTPUT_DIR
 
-AI_WORKSPACE   = Path("/home/ryanrenjr/AI-Workspace")
-OUTPUT_DIR     = AI_WORKSPACE / "DigitalHumanOutput"
-LATENTSYNC_WORK = AI_WORKSPACE / "projects/LatentSync/data/overlap_full_work"
-JOBS_DIR       = AI_WORKSPACE / "jobs"
+LATENTSYNC_WORK = LATENTSYNC_WORK_DIR
 
 VOICE_LS_WAV   = OUTPUT_DIR / "voice_for_latentsync.wav"
 CLEAN_VIDEO    = OUTPUT_DIR / "clean_video.mp4"
 
-# ffprobe may live in the latentsync conda env; fall back to system PATH
-_FFPROBE_CANDIDATES = [
-    "ffprobe",
-    "/home/ryanrenjr/miniconda3/envs/latentsync/bin/ffprobe",
-]
-
 
 def _audio_duration(path: Path) -> float:
     """Return WAV duration in seconds via ffprobe, or 0.0 on any failure."""
-    for candidate in _FFPROBE_CANDIDATES:
+    for candidate in FFPROBE_CANDIDATES:
         try:
             result = subprocess.run(
                 [

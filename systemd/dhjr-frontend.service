@@ -1,0 +1,17 @@
+[Unit]
+Description=Digital Human Job Runner Frontend
+After=network.target dhjr-backend.service
+
+[Service]
+Type=simple
+Environment=DHJR_WORKSPACE=%h/AI-Workspace
+WorkingDirectory=%h/AI-Workspace/app/frontend
+ExecStartPre=/bin/mkdir -p %h/AI-Workspace/logs
+ExecStart=/usr/bin/npm run dev
+Restart=always
+RestartSec=3
+StandardOutput=append:%h/AI-Workspace/logs/frontend.log
+StandardError=append:%h/AI-Workspace/logs/frontend.log
+
+[Install]
+WantedBy=default.target

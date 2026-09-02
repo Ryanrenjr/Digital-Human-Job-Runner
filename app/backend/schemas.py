@@ -9,6 +9,11 @@ class JobCreateRequest(BaseModel):
     keywords: Union[List[str], str]
     script: str
     background_id: str
+    voice_id: Optional[str] = None
+    voice_language: str = "zh"
+    voice_dialect: Optional[str] = "mandarin"
+    voice_mode: str = "basic_tts"
+    voice_style: str = "professional_calm"
     output_type: str = "clean_video"
     shutdown_after_done: bool = False
     subtitle_lines: Optional[List[str]] = None

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-prepare_job.py — LeoVisa Digital Human Job Runner V1
+prepare_job.py — Digital Human Job Runner
 Usage: python prepare_job.py JOB_ID
 """
 
@@ -9,16 +9,15 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-
-AI_WORKSPACE = Path("/home/ryanrenjr/AI-Workspace")
-
-INPUT_DIR = AI_WORKSPACE / "DigitalHumanInput"
-OUTPUT_DIR = AI_WORKSPACE / "DigitalHumanOutput"
-JOBS_DIR = AI_WORKSPACE / "jobs"
-BACKGROUNDS_JSON = AI_WORKSPACE / "app/config/backgrounds.json"
-BOSS_DEFAULT = AI_WORKSPACE / "VideoRefs/boss/default/boss_default.mp4"
-
-WINDOWS_DESKTOP = "C:\\Users\\rjxxx\\Desktop\\DigitalHumanOutput"
+from settings import (
+    BACKGROUNDS_JSON,
+    DEFAULT_AVATAR_VIDEO,
+    INPUT_DIR,
+    JOBS_DIR,
+    OUTPUT_DIR,
+    SUPPORTED_VOICE_IDS,
+    WINDOWS_OUTPUT_DIR,
+)
 
 
 def now_iso() -> str:
@@ -82,16 +81,22 @@ def validate_job(job: dict, job_id: str) -> None:
             f"Must be 'clean_video' or 'voice_only'."
         )
 
-    if job["voice_id"] != "boss_voxcpm2_lora":
+    is_custom_voice = isinstance(job["voice_id"], str) and job["voice_id"].startswith("voice_")
+    if job["voice_id"] not in SUPPORTED_VOICE_IDS and not is_custom_voice:
         raise ValueError(
             f"voice_id '{job['voice_id']}' is not supported in V1. "
-            f"Only boss_voxcpm2_lora is allowed."
+            f"Configured voices: {sorted(SUPPORTED_VOICE_IDS)} or custom voice profiles."
         )
 
     if not isinstance(job["keywords"], list) or not all(
         isinstance(k, str) for k in job["keywords"]
     ):
         raise ValueError("keywords must be a list of strings.")
+
+    job.setdefault("voice_language", "zh")
+    job.setdefault("voice_dialect", "mandarin" if job["voice_language"] == "zh" else "")
+    job.setdefault("voice_mode", "basic_tts")
+    job.setdefault("voice_style", "professional_calm")
 
 
 def resolve_background(background_id: str) -> Path:
@@ -137,16 +142,46 @@ def write_input_files(job: dict, job_input_dir: Path) -> None:
             path.write_text(content, encoding="utf-8")
         print(f"[INFO] Written: {name} -> DigitalHumanInput/ and job input/")
 
+    voice_profile = {
+        "voice_id": job.get("voice_id", ""),
+        "language": job.get("voice_language", "zh"),
+        "dialect": job.get("voice_dialect", ""),
+        "mode": job.get("voice_mode", "basic_tts"),
+        "style": job.get("voice_style", "professional_calm"),
+    }
+    voice_prompt = build_voice_prompt(voice_profile)
+
+    for dest_dir in (INPUT_DIR, job_input_dir):
+        (dest_dir / "voice_profile.json").write_text(
+            json.dumps(voice_profile, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        (dest_dir / "voice_prompt.txt").write_text(voice_prompt, encoding="utf-8")
+    print(f"[INFO] Written: voice_profile.json and voice_prompt.txt")
+
+
+def build_voice_prompt(profile: dict) -> str:
+    parts = [
+        f"language={profile.get('language', 'zh')}",
+        f"mode={profile.get('mode', 'basic_tts')}",
+        f"style={profile.get('style', 'professional_calm')}",
+    ]
+    dialect = profile.get("dialect")
+    if dialect:
+        parts.insert(1, f"dialect={dialect}")
+    return "\n".join(parts) + "\n"
+
 
 def switch_background(background_id: str, job_id: str, bg_src: Path, stamp: str) -> None:
-    if BOSS_DEFAULT.exists():
-        backup_name = f"boss_default_backup_prepare_{job_id}_{stamp}.mp4"
-        backup_path = BOSS_DEFAULT.parent / backup_name
-        shutil.copy2(BOSS_DEFAULT, backup_path)
-        print(f"[INFO] Backed up boss_default.mp4 -> {backup_name}")
+    if DEFAULT_AVATAR_VIDEO.exists():
+        backup_name = f"default_avatar_backup_prepare_{job_id}_{stamp}.mp4"
+        backup_path = DEFAULT_AVATAR_VIDEO.parent / backup_name
+        shutil.copy2(DEFAULT_AVATAR_VIDEO, backup_path)
+        print(f"[INFO] Backed up default avatar video -> {backup_name}")
 
-    shutil.copy2(bg_src, BOSS_DEFAULT)
-    print(f"[INFO] Background switched: {background_id} ({bg_src.name}) -> boss_default.mp4")
+    DEFAULT_AVATAR_VIDEO.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(bg_src, DEFAULT_AVATAR_VIDEO)
+    print(f"[INFO] Avatar video switched: {background_id} ({bg_src.name}) -> {DEFAULT_AVATAR_VIDEO.name}")
 
 
 def clean_old_outputs() -> None:
@@ -190,15 +225,19 @@ def build_paths(job_id: str, output_type: str = "clean_video") -> dict:
         "subtitle_txt": str(job_dir / "input/subtitle.txt"),
         "keywords_txt": str(job_dir / "input/keywords.txt"),
         "script_txt": str(job_dir / "input/script.txt"),
+        "voice_profile_json": str(job_dir / "input/voice_profile.json"),
+        "voice_prompt_txt": str(job_dir / "input/voice_prompt.txt"),
         "voice_wav": str(job_dir / "output/voice.wav"),
         "voice_for_latentsync_wav": str(job_dir / "output/voice_for_latentsync.wav"),
         "clean_video": None if is_voice else str(job_dir / "output/clean_video.mp4"),
         "final_video": None,
         "run_log": str(job_dir / "logs/run.log"),
+        "subtitle_lines_txt": str(job_dir / "output/subtitle_lines.txt"),
+        "script_meta_json": str(job_dir / "output/script_meta.json"),
         "windows_desktop_output": (
-            f"{WINDOWS_DESKTOP}\\{job_id}_voice.wav"
+            str(WINDOWS_OUTPUT_DIR / f"{job_id}_voice.wav")
             if is_voice else
-            f"{WINDOWS_DESKTOP}\\{job_id}_clean_video.mp4"
+            str(WINDOWS_OUTPUT_DIR / f"{job_id}_clean_video.mp4")
         ),
     }
 
@@ -212,7 +251,7 @@ def main() -> None:
     job_path = JOBS_DIR / job_id / "job.json"
 
     print(f"[INFO] ========================================")
-    print(f"[INFO] prepare_job.py — LeoVisa Job Runner V1")
+    print(f"[INFO] prepare_job.py — Digital Human Job Runner")
     print(f"[INFO] Job ID : {job_id}")
     print(f"[INFO] Job    : {job_path}")
     print(f"[INFO] ========================================")
@@ -237,6 +276,10 @@ def main() -> None:
     print(f"[INFO]   subtitle     : {job['subtitle']}")
     print(f"[INFO]   background_id: {job['background_id']}")
     print(f"[INFO]   voice_id     : {job['voice_id']}")
+    print(f"[INFO]   language     : {job.get('voice_language', 'zh')}")
+    print(f"[INFO]   dialect      : {job.get('voice_dialect', '')}")
+    print(f"[INFO]   voice_mode   : {job.get('voice_mode', 'basic_tts')}")
+    print(f"[INFO]   voice_style  : {job.get('voice_style', 'professional_calm')}")
     print(f"[INFO]   output_type  : {job['output_type']}")
     print(f"[INFO]   keywords     : {job['keywords']}")
 

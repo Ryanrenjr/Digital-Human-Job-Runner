@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-create_test_job.py — LeoVisa Digital Human Job Runner V1
+create_test_job.py — Digital Human Job Runner
 Creates a test job for validating the CleanVideo pipeline.
 Usage: python3 create_test_job.py
 """
@@ -8,10 +8,7 @@ Usage: python3 create_test_job.py
 import json
 from datetime import datetime
 from pathlib import Path
-
-AI_WORKSPACE = Path("/home/ryanrenjr/AI-Workspace")
-JOBS_DIR = AI_WORKSPACE / "jobs"
-WINDOWS_DESKTOP = "C:\\Users\\rjxxx\\Desktop\\DigitalHumanOutput"
+from settings import DEFAULT_VOICE_ID, JOBS_DIR, RUN_SCRIPT, WINDOWS_OUTPUT_DIR
 
 
 def now_iso() -> str:
@@ -38,12 +35,12 @@ def build_paths(job_id: str) -> dict:
         "clean_video": str(job_dir / "output/clean_video.mp4"),
         "final_video": None,
         "run_log": str(job_dir / "logs/run.log"),
-        "windows_desktop_output": f"/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput/{job_id}_clean_video.mp4",
+        "windows_desktop_output": str(WINDOWS_OUTPUT_DIR / f"{job_id}_clean_video.mp4"),
     }
 
 
 def main() -> None:
-    job_id = f"{now_stamp()}_test_ilr"
+    job_id = f"{now_stamp()}_test_video"
     job_dir = JOBS_DIR / job_id
 
     for subdir in ("input", "output", "logs"):
@@ -52,12 +49,12 @@ def main() -> None:
     job = {
         "job_id": job_id,
         "status": "pending",
-        "title": "永居改革没落地",
-        "subtitle": "没落地，不等于不来了",
-        "keywords": ["永居改革", "五年永居", "十年永居", "ILR", "李尔王"],
-        "script": "永居改革，到今天还没落地。很多人觉得，那可以松口气了。但李尔王想跟你说：没落地，不等于不来了。安全感，要靠自己的时间线，不是靠等一条新闻。我是李尔王，我们下期见。",
+        "title": "60 秒产品更新",
+        "subtitle": "一段简洁的视频说明",
+        "keywords": ["产品", "更新", "口播", "数字人"],
+        "script": "这是一个 Digital Human Job Runner 测试任务。你可以输入任意口播文案，选择一个 Avatar 视频，然后生成一段数字人口播视频。",
         "background_id": "boss_03",
-        "voice_id": "boss_voxcpm2_lora",
+        "voice_id": DEFAULT_VOICE_ID,
         "output_type": "clean_video",
         "shutdown_after_done": False,
         "created_at": now_iso(),
@@ -77,8 +74,8 @@ def main() -> None:
     job_json_path = job_dir / "job.json"
     job_json_path.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    run_cmd = f"bash /home/ryanrenjr/AI-Workspace/scripts/run_cleanvideo_job.sh {job_id}"
-    log_cmd = f"tail -f /home/ryanrenjr/AI-Workspace/jobs/{job_id}/logs/run.log"
+    run_cmd = f"bash {RUN_SCRIPT} {job_id}"
+    log_cmd = f"tail -f {JOBS_DIR / job_id / 'logs/run.log'}"
 
     print(f"Created test job: {job_id}")
     print(f"Job path: {job_dir}")

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-AI_WORKSPACE="$HOME/AI-Workspace"
+AI_WORKSPACE="${DHJR_WORKSPACE:-$HOME/AI-Workspace}"
 
 if [ $# -ne 1 ]; then
     echo "Usage: bash $(basename "$0") JOB_ID" >&2
@@ -71,7 +71,7 @@ trap 'fail_job "Command failed at line $LINENO"' ERR
 # --- Shutdown handler (post-success, non-fatal) ---
 maybe_shutdown_after_done() {
     local job_json="$1"
-    local SHUTDOWN_EXE="/mnt/c/Windows/System32/shutdown.exe"
+    local SHUTDOWN_EXE="${DHJR_SHUTDOWN_EXE:-/mnt/c/Windows/System32/shutdown.exe}"
 
     local should_shutdown
     should_shutdown=$(JOB_JSON_PATH="$job_json" python3 - <<'PYEOF' || echo "no"

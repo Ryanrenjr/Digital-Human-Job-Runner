@@ -5,23 +5,16 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from settings import BACKGROUND_ASSETS_DIR, BACKGROUNDS_JSON, CUSTOM_BACKGROUNDS_DIR, FFMPEG_CANDIDATES, THUMBNAILS_DIR
 
 logger = logging.getLogger(__name__)
 
-AI_WORKSPACE     = Path("/home/ryanrenjr/AI-Workspace")
-BACKGROUNDS_JSON = AI_WORKSPACE / "app/config/backgrounds.json"
-BUILTIN_DIR      = AI_WORKSPACE / "assets/backgrounds"
-CUSTOM_DIR       = BUILTIN_DIR / "custom"
-THUMBNAILS_DIR   = BUILTIN_DIR / "thumbnails"
-
-_FFMPEG_CANDIDATES = [
-    "ffmpeg",
-    "/home/ryanrenjr/miniconda3/envs/latentsync/bin/ffmpeg",
-]
+BUILTIN_DIR = BACKGROUND_ASSETS_DIR
+CUSTOM_DIR = CUSTOM_BACKGROUNDS_DIR
 
 
 def _find_ffmpeg() -> str:
-    for candidate in _FFMPEG_CANDIDATES:
+    for candidate in FFMPEG_CANDIDATES:
         try:
             r = subprocess.run([candidate, "-version"], capture_output=True, timeout=5)
             if r.returncode == 0:

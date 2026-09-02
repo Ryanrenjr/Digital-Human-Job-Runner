@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import * as api from '../api'
 
+const labelFor = (map, value) => value ? (map?.[value] || value) : ''
+
 function Row({ label, value, mono }) {
   if (value === null || value === undefined || value === '') return null
   return (
@@ -126,6 +128,10 @@ export function JobDetail({ job, log, onClose, onRefreshLog, onCancel, onReset, 
           <Row label={t.detail.subtitleLabel}value={job.subtitle} />
           <Row label={t.detail.background}   value={job.background_id} />
           <Row label={t.detail.voice}        value={job.voice_id} />
+          <Row label={t.detail.voiceLanguage} value={labelFor(t.voiceLanguages, job.voice_language)} />
+          <Row label={t.detail.voiceDialect}  value={labelFor(t.voiceDialects, job.voice_dialect)} />
+          <Row label={t.detail.voiceMode}     value={labelFor(t.voiceModes, job.voice_mode)} />
+          <Row label={t.detail.voiceStyle}    value={labelFor(t.voiceStyles, job.voice_style)} />
           <Row label={t.detail.created}      value={job.created_at} />
           <Row label={t.detail.started}      value={job.started_at} />
           <Row label={t.detail.finished}     value={job.finished_at} />

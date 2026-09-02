@@ -1,5 +1,5 @@
 # Version History
-## LeoVisa Digital Human Job Runner
+## Digital Human Job Runner
 
 ---
 

@@ -4,9 +4,7 @@ import subprocess
 from typing import Optional
 
 from job_store import list_jobs, load_job
-
-RUN_SCRIPT       = "/home/ryanrenjr/AI-Workspace/scripts/run_cleanvideo_job.sh"
-RUN_VOICE_SCRIPT = "/home/ryanrenjr/AI-Workspace/scripts/run_voice_only_job.sh"
+from settings import RUN_SCRIPT, RUN_VOICE_SCRIPT
 
 _PIPELINE_MARKERS = [
     "run_02_latentsync_overlap.sh",

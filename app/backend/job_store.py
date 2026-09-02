@@ -6,12 +6,9 @@ from pathlib import Path
 from typing import Optional
 
 from schemas import JobCreateRequest
+from settings import DEFAULT_VOICE_ID, JOBS_DIR, WINDOWS_OUTPUT_DIR
 
 logger = logging.getLogger(__name__)
-
-AI_WORKSPACE = Path("/home/ryanrenjr/AI-Workspace")
-JOBS_DIR = AI_WORKSPACE / "jobs"
-WINDOWS_DESKTOP_MOUNT = "/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput"
 
 
 def _now_iso() -> str:
@@ -69,12 +66,14 @@ def _build_paths(job_id: str) -> dict:
         "subtitle_txt": str(job_dir / "input/subtitle.txt"),
         "keywords_txt": str(job_dir / "input/keywords.txt"),
         "script_txt": str(job_dir / "input/script.txt"),
+        "voice_profile_json": str(job_dir / "input/voice_profile.json"),
+        "voice_prompt_txt": str(job_dir / "input/voice_prompt.txt"),
         "voice_wav": str(job_dir / "output/voice.wav"),
         "voice_for_latentsync_wav": str(job_dir / "output/voice_for_latentsync.wav"),
         "clean_video": str(job_dir / "output/clean_video.mp4"),
         "final_video": None,
         "run_log": str(job_dir / "logs/run.log"),
-        "windows_desktop_output": f"{WINDOWS_DESKTOP_MOUNT}/{job_id}_clean_video.mp4",
+        "windows_desktop_output": str(WINDOWS_OUTPUT_DIR / f"{job_id}_clean_video.mp4"),
         "subtitle_lines_txt": str(job_dir / "output/subtitle_lines.txt"),
         "script_meta_json": str(job_dir / "output/script_meta.json"),
     }
@@ -101,7 +100,11 @@ def create_job(req: JobCreateRequest) -> dict:
         "keywords": _normalize_keywords(req.keywords),
         "script": req.script,
         "background_id": req.background_id,
-        "voice_id": "boss_voxcpm2_lora",
+        "voice_id": req.voice_id or DEFAULT_VOICE_ID,
+        "voice_language": req.voice_language or "zh",
+        "voice_dialect": req.voice_dialect if req.voice_language == "zh" else "",
+        "voice_mode": req.voice_mode or "basic_tts",
+        "voice_style": req.voice_style or "professional_calm",
         "output_type": req.output_type,
         "shutdown_after_done": req.shutdown_after_done,
         "created_at": _now_iso(),
@@ -135,6 +138,10 @@ def create_job(req: JobCreateRequest) -> dict:
             "opening_hook": req.opening_hook or "",
             "source":       req.script_source or "manual",
             "model":        req.script_model  or "",
+            "voice_language": job["voice_language"],
+            "voice_dialect": job["voice_dialect"],
+            "voice_mode": job["voice_mode"],
+            "voice_style": job["voice_style"],
         }
         p = Path(job["paths"]["script_meta_json"])
         p.parent.mkdir(parents=True, exist_ok=True)

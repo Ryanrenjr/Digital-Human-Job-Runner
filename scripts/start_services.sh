@@ -1,7 +1,7 @@
 #!/bin/bash
-# LeoVisa startup script — uses systemd for reliable service management.
+# Digital Human Job Runner startup script - uses systemd for reliable service management.
 
-systemctl --user start leovisa-backend.service leovisa-frontend.service ollama.service 2>/dev/null
+systemctl --user start dhjr-backend.service dhjr-frontend.service ollama.service 2>/dev/null
 
-echo '[leovisa] services started'
-systemctl --user is-active leovisa-backend.service leovisa-frontend.service
+echo '[dhjr] services started'
+systemctl --user is-active dhjr-backend.service dhjr-frontend.service

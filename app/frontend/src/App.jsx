@@ -1,12 +1,31 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Header }             from './components/Header'
 import { CreateJobForm }      from './components/CreateJobForm'
-import { HowToUse }           from './components/HowToUse'
 import { JobQueue }           from './components/JobQueue'
 import { JobDetail }          from './components/JobDetail'
 import { QueueControlPanel }  from './components/QueueControlPanel'
+import { TrainingPage }       from './components/TrainingPage'
 import { translations }       from './translations'
 import * as api from './api'
+
+const DEFAULT_VOICE_PROFILE = {
+  id: 'default_voice',
+  name: 'System Voice',
+  language: 'zh',
+  dialect: 'mandarin',
+  style: 'professional_calm',
+  mode: 'basic_tts',
+}
+
+function loadVoiceProfiles() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('dhjr_voice_profiles') || '[]')
+    const custom = Array.isArray(saved) ? saved.filter(p => p?.id && p.id !== 'default_voice') : []
+    return [DEFAULT_VOICE_PROFILE, ...custom]
+  } catch {
+    return [DEFAULT_VOICE_PROFILE]
+  }
+}
 
 export default function App() {
   const [backendOnline,       setBackendOnline]       = useState(null)
@@ -20,16 +39,45 @@ export default function App() {
   const [queueStatus,         setQueueStatus]         = useState(null)
   const [queueLoading,        setQueueLoading]        = useState(true)
   const [queueError,          setQueueError]          = useState(null)
-  const [language,            setLanguage]            = useState(
-    () => localStorage.getItem('leovisa_language') || 'en'
+  const [activePage,          setActivePage]          = useState(
+    () => window.location.hash === '#training' ? 'training' : 'jobs'
   )
+  const [language,            setLanguage]            = useState(
+    () => localStorage.getItem('dhjr_language') || 'en'
+  )
+  const [voiceProfiles,       setVoiceProfiles]       = useState(loadVoiceProfiles)
 
   const t           = translations[language]
   const selectedJob = jobs.find(j => j.job_id === selectedJobId) || null
 
   const handleLanguageChange = (lang) => {
     setLanguage(lang)
-    localStorage.setItem('leovisa_language', lang)
+    localStorage.setItem('dhjr_language', lang)
+  }
+
+  const handlePageChange = (page) => {
+    setActivePage(page)
+    if (page === 'training') {
+      window.location.hash = 'training'
+    } else {
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }
+
+  const saveVoiceProfiles = (profiles) => {
+    setVoiceProfiles(profiles)
+    localStorage.setItem(
+      'dhjr_voice_profiles',
+      JSON.stringify(profiles.filter(p => p.id !== 'default_voice')),
+    )
+  }
+
+  const handleCreateVoiceProfile = (profile) => {
+    saveVoiceProfiles([...voiceProfiles.filter(p => p.id !== profile.id), profile])
+  }
+
+  const handleDeleteVoiceProfile = (profileId) => {
+    saveVoiceProfiles(voiceProfiles.filter(p => p.id === 'default_voice' || p.id !== profileId))
   }
 
   // ---- API helpers ----
@@ -255,6 +303,8 @@ export default function App() {
         online={backendOnline}
         language={language}
         onLanguageChange={handleLanguageChange}
+        activePage={activePage}
+        onPageChange={handlePageChange}
         t={t}
       />
 
@@ -267,63 +317,75 @@ export default function App() {
         </div>
       )}
 
-      <main className="main">
-        <div className="left-panel">
-          <CreateJobForm
-            backgrounds={backgrounds}
-            onSubmit={handleCreateJob}
-            isSubmitting={isSubmitting}
-            onUploadBackground={handleUploadBackground}
-            onDeleteBackground={handleDeleteBackground}
-            uploadingBackground={uploadingBackground}
-            t={t}
-          />
-          <HowToUse t={t} />
-        </div>
+      {activePage === 'training' ? (
+        <TrainingPage
+          t={t}
+          voiceProfiles={voiceProfiles}
+          onCreateVoiceProfile={handleCreateVoiceProfile}
+          onDeleteVoiceProfile={handleDeleteVoiceProfile}
+        />
+      ) : (
+        <main className="main">
+          <div className="left-panel">
+            <CreateJobForm
+              backgrounds={backgrounds}
+              onSubmit={handleCreateJob}
+              isSubmitting={isSubmitting}
+              onUploadBackground={handleUploadBackground}
+              onDeleteBackground={handleDeleteBackground}
+              uploadingBackground={uploadingBackground}
+              voiceProfiles={voiceProfiles.map(profile => ({
+                ...profile,
+                name: profile.id === 'default_voice' ? t.form.systemVoice : profile.name,
+              }))}
+              t={t}
+            />
+          </div>
 
-        <div className="right-panel">
-          <QueueControlPanel
-            status={queueStatus}
-            loading={queueLoading}
-            error={queueError}
-            onRetry={retryQueueStatus}
-            onToggleAutoRun={handleToggleAutoRun}
-            onPause={handlePauseQueue}
-            onResume={handleResumeQueue}
-            onRunNext={handleRunNext}
-            onToggleShutdown={handleToggleShutdown}
-            t={t}
-          />
-          <JobQueue
-            jobs={jobs}
-            selectedJobId={selectedJobId}
-            onSelect={handleSelectJob}
-            onRun={handleRunJob}
-            onCancel={handleCancelJob}
-            onReset={handleResetJob}
-            onDelete={handleDeleteJob}
-            onRefresh={loadJobs}
-            t={t}
-          />
-          {selectedJob ? (
-            <JobDetail
-              job={selectedJob}
-              log={jobLog}
-              onClose={() => setSelectedJobId(null)}
-              onRefreshLog={() => loadJobLog(selectedJobId)}
+          <div className="right-panel">
+            <QueueControlPanel
+              status={queueStatus}
+              loading={queueLoading}
+              error={queueError}
+              onRetry={retryQueueStatus}
+              onToggleAutoRun={handleToggleAutoRun}
+              onPause={handlePauseQueue}
+              onResume={handleResumeQueue}
+              onRunNext={handleRunNext}
+              onToggleShutdown={handleToggleShutdown}
+              t={t}
+            />
+            <JobQueue
+              jobs={jobs}
+              selectedJobId={selectedJobId}
+              onSelect={handleSelectJob}
+              onRun={handleRunJob}
               onCancel={handleCancelJob}
               onReset={handleResetJob}
               onDelete={handleDeleteJob}
+              onRefresh={loadJobs}
               t={t}
             />
-          ) : (
-            <div className="detail-empty">
-              <div className="detail-empty-icon">◻</div>
-              <div className="detail-empty-text">{t.detail.emptyTitle}</div>
-            </div>
-          )}
-        </div>
-      </main>
+            {selectedJob ? (
+              <JobDetail
+                job={selectedJob}
+                log={jobLog}
+                onClose={() => setSelectedJobId(null)}
+                onRefreshLog={() => loadJobLog(selectedJobId)}
+                onCancel={handleCancelJob}
+                onReset={handleResetJob}
+                onDelete={handleDeleteJob}
+                t={t}
+              />
+            ) : (
+              <div className="detail-empty">
+                <div className="detail-empty-icon">◻</div>
+                <div className="detail-empty-text">{t.detail.emptyTitle}</div>
+              </div>
+            )}
+          </div>
+        </main>
+      )}
     </div>
   )
 }

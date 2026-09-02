@@ -1,4 +1,4 @@
-export function Header({ online, language, onLanguageChange, t }) {
+export function Header({ online, language, onLanguageChange, activePage, onPageChange, t }) {
   const dotClass = online === null
     ? 'status-dot'
     : online
@@ -19,6 +19,22 @@ export function Header({ online, language, onLanguageChange, t }) {
           <div className="header-sub">{t.header.subtitle}</div>
         </div>
         <div className="header-right">
+          <nav className="app-nav" aria-label="Primary">
+            <button
+              className={`app-nav-btn${activePage === 'jobs' ? ' active' : ''}`}
+              onClick={() => onPageChange('jobs')}
+              type="button"
+            >
+              {t.nav.jobs}
+            </button>
+            <button
+              className={`app-nav-btn${activePage === 'training' ? ' active' : ''}`}
+              onClick={() => onPageChange('training')}
+              type="button"
+            >
+              {t.nav.training}
+            </button>
+          </nav>
           <div className="lang-toggle">
             <button
               className={`lang-btn${language === 'en' ? ' active' : ''}`}

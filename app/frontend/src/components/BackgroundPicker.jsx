@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import * as api from '../api'
 
-function BgCard({ bg, selected, onSelect, onDelete, t }) {
+function BgCard({ bg, selected, onSelect, onDelete, manageAssets, t }) {
   const thumbUrl = api.getThumbnailUrl(bg.id)
 
   return (
@@ -30,7 +30,7 @@ function BgCard({ bg, selected, onSelect, onDelete, t }) {
           >
             {selected ? t.backgrounds.selected : t.backgrounds.select}
           </button>
-          {bg.type === 'custom' && (
+          {manageAssets && bg.type === 'custom' && (
             <button
               className="btn btn-danger btn-xs"
               title={t.backgrounds.deleteBackground}
@@ -45,7 +45,16 @@ function BgCard({ bg, selected, onSelect, onDelete, t }) {
   )
 }
 
-export function BackgroundPicker({ backgrounds, selectedId, onSelect, onDelete, onUpload, uploading, t }) {
+export function BackgroundPicker({
+  backgrounds,
+  selectedId,
+  onSelect,
+  onDelete,
+  onUpload,
+  uploading,
+  manageAssets = true,
+  t,
+}) {
   const fileRef = useRef(null)
   const [showReqs, setShowReqs] = useState(false)
 
@@ -60,30 +69,34 @@ export function BackgroundPicker({ backgrounds, selectedId, onSelect, onDelete, 
     <div className="bg-picker">
       <div className="bg-picker-header">
         <span className="bg-picker-title">{t.backgrounds.library}</span>
-        <button
-          className={`btn btn-ghost btn-xs bg-req-toggle${showReqs ? ' active' : ''}`}
-          onClick={() => setShowReqs(v => !v)}
-          title={t.backgrounds.requirementsTitle}
-        >
-          ℹ
-        </button>
-        <button
-          className="btn btn-ghost btn-xs"
-          onClick={() => fileRef.current?.click()}
-          disabled={uploading}
-        >
-          {uploading ? t.backgrounds.uploading : t.backgrounds.uploadMp4}
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".mp4,video/mp4"
-          style={{ display: 'none' }}
-          onChange={handleFileChange}
-        />
+        {manageAssets && (
+          <>
+            <button
+              className={`btn btn-ghost btn-xs bg-req-toggle${showReqs ? ' active' : ''}`}
+              onClick={() => setShowReqs(v => !v)}
+              title={t.backgrounds.requirementsTitle}
+            >
+              ℹ
+            </button>
+            <button
+              className="btn btn-ghost btn-xs"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+            >
+              {uploading ? t.backgrounds.uploading : t.backgrounds.uploadMp4}
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".mp4,video/mp4"
+              style={{ display: 'none' }}
+              onChange={handleFileChange}
+            />
+          </>
+        )}
       </div>
 
-      {showReqs && (
+      {manageAssets && showReqs && (
         <div className="bg-requirements">
           <div className="bg-req-title">{t.backgrounds.requirementsTitle}</div>
           <ol className="bg-req-list">
@@ -105,6 +118,7 @@ export function BackgroundPicker({ backgrounds, selectedId, onSelect, onDelete, 
               selected={bg.id === selectedId}
               onSelect={onSelect}
               onDelete={onDelete}
+              manageAssets={manageAssets}
               t={t}
             />
           ))}

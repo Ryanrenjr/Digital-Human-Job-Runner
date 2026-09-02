@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-AI_WORKSPACE="$HOME/AI-Workspace"
+AI_WORKSPACE="${DHJR_WORKSPACE:-$HOME/AI-Workspace}"
 
 if [ $# -ne 1 ]; then
     echo "Usage: bash $(basename "$0") JOB_ID" >&2

@@ -31,11 +31,10 @@ from schemas import (
     ScriptFormatRequest,
 )
 import script_assistant
+from settings import AI_WORKSPACE, APP_NAME, APP_VERSION, EXTRA_CORS_ORIGINS, VITE_FRONTEND_ORIGIN
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-AI_WORKSPACE = Path("/home/ryanrenjr/AI-Workspace")
 
 
 @asynccontextmanager
@@ -46,11 +45,11 @@ async def lifespan(_app: FastAPI):
     queue_runner.stop_worker()
 
 
-app = FastAPI(title="LeoVisa Digital Human Job Runner", version="0.1.4", lifespan=lifespan)
+app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    allow_origins=[VITE_FRONTEND_ORIGIN, *EXTRA_CORS_ORIGINS],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -101,8 +100,8 @@ def _with_artifacts(job: dict) -> dict:
 def health():
     return HealthResponse(
         status="ok",
-        service="LeoVisa Digital Human Job Runner",
-        version="0.1.4",
+        service=APP_NAME,
+        version=APP_VERSION,
     )
 
 

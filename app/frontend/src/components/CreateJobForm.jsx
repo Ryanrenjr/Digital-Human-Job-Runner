@@ -1,6 +1,11 @@
 import { useState } from 'react'
 import { BackgroundPicker }    from './BackgroundPicker'
 import { AIScriptAssistant }   from './AIScriptAssistant'
+import {
+  CHINESE_DIALECTS,
+  VOICE_LANGUAGES,
+  VOICE_STYLE_PRESETS,
+} from '../voiceOptions'
 
 const INITIAL = {
   title: '',
@@ -8,6 +13,11 @@ const INITIAL = {
   keywords: '',
   script: '',
   background_id: '',
+  voice_id: 'default_voice',
+  voice_language: 'zh',
+  voice_dialect: 'mandarin',
+  voice_mode: 'basic_tts',
+  voice_style: 'professional_calm',
   output_type: 'clean_video',
   shutdown_after_done: false,
   // AI-generated extras (sent with job create but not shown as form fields)
@@ -25,12 +35,27 @@ export function CreateJobForm({
   onDeleteBackground,
   uploadingBackground,
   t,
+  voiceProfiles = [],
 }) {
   const [fields, setFields] = useState(INITIAL)
   const [errors, setErrors] = useState({})
 
   const set = (key, value) => {
-    setFields(f => ({ ...f, [key]: value }))
+    setFields(f => {
+      const next = { ...f, [key]: value }
+      if (key === 'voice_language' && value !== 'zh') next.voice_dialect = ''
+      if (key === 'voice_language' && value === 'zh' && !next.voice_dialect) next.voice_dialect = 'mandarin'
+      if (key === 'voice_id') {
+        const profile = voiceProfiles.find(p => p.id === value)
+        if (profile) {
+          next.voice_language = profile.language || 'zh'
+          next.voice_dialect = profile.language === 'zh' ? (profile.dialect || 'mandarin') : ''
+          next.voice_style = profile.style || 'professional_calm'
+          next.voice_mode = profile.mode || (profile.id === 'default_voice' ? 'basic_tts' : 'lora_finetune')
+        }
+      }
+      return next
+    })
     if (errors[key]) setErrors(e => ({ ...e, [key]: null }))
   }
 
@@ -117,6 +142,71 @@ export function CreateJobForm({
         {errors.script && <div className="form-error">{errors.script}</div>}
       </div>
 
+      <div className="form-group voice-settings-panel">
+        <div className="voice-settings-head">
+          <div>
+            <label className="form-label">{t.form.voiceSettings}</label>
+            <div className="form-hint">{t.form.voiceSettingsHint}</div>
+          </div>
+        </div>
+
+        <div className="voice-settings-grid">
+          <label className="voice-field">
+            <span>{t.form.voicePerson}</span>
+            <select
+              className="form-select"
+              value={fields.voice_id}
+              onChange={e => set('voice_id', e.target.value)}
+            >
+              {voiceProfiles.map(profile => (
+                <option key={profile.id} value={profile.id}>{profile.name}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="voice-field">
+            <span>{t.form.voiceLanguage}</span>
+            <select
+              className="form-select"
+              value={fields.voice_language}
+              onChange={e => set('voice_language', e.target.value)}
+            >
+              {VOICE_LANGUAGES.map(([value, label]) => (
+                <option key={value} value={value}>{t.voiceLanguages?.[value] || label}</option>
+              ))}
+            </select>
+          </label>
+
+          {fields.voice_language === 'zh' && (
+            <label className="voice-field">
+              <span>{t.form.voiceDialect}</span>
+              <select
+                className="form-select"
+                value={fields.voice_dialect}
+                onChange={e => set('voice_dialect', e.target.value)}
+              >
+                {CHINESE_DIALECTS.map(([value, label]) => (
+                  <option key={value} value={value}>{t.voiceDialects?.[value] || label}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label className="voice-field">
+            <span>{t.form.voiceStyle}</span>
+            <select
+              className="form-select"
+              value={fields.voice_style}
+              onChange={e => set('voice_style', e.target.value)}
+            >
+              {VOICE_STYLE_PRESETS.map(([value, label]) => (
+                <option key={value} value={value}>{t.voiceStyles?.[value] || label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+
       {/* ── Background picker (clean_video only) ── */}
       {fields.output_type === 'clean_video' && (
         <div className="form-group">
@@ -128,17 +218,12 @@ export function CreateJobForm({
             onDelete={handleDeleteBackground}
             onUpload={onUploadBackground}
             uploading={uploadingBackground}
+            manageAssets={false}
             t={t}
           />
           {errors.background_id && <div className="form-error">{errors.background_id}</div>}
         </div>
       )}
-
-      {/* ── Voice (read-only) ── */}
-      <div className="form-group">
-        <label className="form-label">{t.form.voice}</label>
-        <div className="form-voice-display">{t.form.voiceDefault}</div>
-      </div>
 
       <div className="form-group">
         <label className="form-label">{t.form.outputType}</label>

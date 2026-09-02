@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-collect_output.py — LeoVisa Digital Human Job Runner V1
+collect_output.py — Digital Human Job Runner
 Usage: python collect_output.py JOB_ID
 """
 
@@ -9,13 +9,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-
-AI_WORKSPACE = Path("/home/ryanrenjr/AI-Workspace")
-
-OUTPUT_DIR = AI_WORKSPACE / "DigitalHumanOutput"
-INPUT_DIR = AI_WORKSPACE / "DigitalHumanInput"
-JOBS_DIR = AI_WORKSPACE / "jobs"
-WINDOWS_DESKTOP = Path("/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput")
+from settings import INPUT_DIR, JOBS_DIR, OUTPUT_DIR, WINDOWS_OUTPUT_DIR
 
 
 def now_iso() -> str:
@@ -89,8 +83,8 @@ def sync_input_files(job_id: str) -> None:
 
 
 def copy_to_windows_desktop(job_id: str, src: Path) -> Path:
-    WINDOWS_DESKTOP.mkdir(parents=True, exist_ok=True)
-    dst = WINDOWS_DESKTOP / f"{job_id}_clean_video.mp4"
+    WINDOWS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    dst = WINDOWS_OUTPUT_DIR / f"{job_id}_clean_video.mp4"
     shutil.copy2(src, dst)
     print(f"[INFO] Copied to Windows Desktop: {dst}")
     return dst
@@ -105,7 +99,7 @@ def main() -> None:
     job_path = JOBS_DIR / job_id / "job.json"
 
     print(f"[INFO] ========================================")
-    print(f"[INFO] collect_output.py — LeoVisa Job Runner V1")
+    print(f"[INFO] collect_output.py — Digital Human Job Runner")
     print(f"[INFO] Job ID : {job_id}")
     print(f"[INFO] Job    : {job_path}")
     print(f"[INFO] ========================================")

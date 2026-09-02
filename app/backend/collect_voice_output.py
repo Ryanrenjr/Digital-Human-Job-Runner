@@ -9,11 +9,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-
-AI_WORKSPACE    = Path("/home/ryanrenjr/AI-Workspace")
-OUTPUT_DIR      = AI_WORKSPACE / "DigitalHumanOutput"
-JOBS_DIR        = AI_WORKSPACE / "jobs"
-WINDOWS_DESKTOP = Path("/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput")
+from settings import JOBS_DIR, OUTPUT_DIR, WINDOWS_OUTPUT_DIR
 
 
 def now_iso():
@@ -81,8 +77,8 @@ def main():
     # Copy voice.wav to Windows Desktop
     win_dst = None
     try:
-        WINDOWS_DESKTOP.mkdir(parents=True, exist_ok=True)
-        win_dst = WINDOWS_DESKTOP / f"{job_id}_voice.wav"
+        WINDOWS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        win_dst = WINDOWS_OUTPUT_DIR / f"{job_id}_voice.wav"
         shutil.copy2(voice_src, win_dst)
         print(f"[INFO] Copied to Windows Desktop: {win_dst}")
     except Exception as e:

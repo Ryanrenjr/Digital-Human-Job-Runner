@@ -9,10 +9,10 @@ from typing import Optional
 
 from job_store import list_jobs, save_job
 from runner import is_job_process_running, start_job
+from settings import AI_WORKSPACE, SHUTDOWN_EXE
 
 logger = logging.getLogger(__name__)
 
-AI_WORKSPACE = Path("/home/ryanrenjr/AI-Workspace")
 STATE_PATH   = AI_WORKSPACE / "app/config/queue_state.json"
 
 _DONE = {"finished", "failed", "cancelled"}
@@ -176,7 +176,7 @@ class QueueRunner:
                 # Disable immediately so it never fires again (this cycle or after reboot)
                 self.set_shutdown_after_complete(False)
                 subprocess.Popen(
-                    ["/mnt/c/Windows/System32/shutdown.exe", "/s", "/t", "30"],
+                    [SHUTDOWN_EXE, "/s", "/t", "30"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
             return
