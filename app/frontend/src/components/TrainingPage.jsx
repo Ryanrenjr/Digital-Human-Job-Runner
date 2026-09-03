@@ -161,6 +161,22 @@ function QualityItem({ ok, children }) {
   )
 }
 
+function formatDateTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value).replace('T', ' ')
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function isTrainingStatus(status) {
+  return ['queued', 'training_requested', 'training'].includes(status)
+}
+
 export function TrainingPage({
   t,
   voiceProfiles,
@@ -199,6 +215,16 @@ export function TrainingPage({
   const overallScore = video && audioFiles.length
     ? Math.round((videoScore.score + audioScore.score) / 2)
     : Math.max(videoScore.score, audioScore.score)
+  const customVoiceProfiles = voiceProfiles.filter(profile => !profile.builtIn && profile.id !== 'default_voice')
+  const activeTrainingProfiles = customVoiceProfiles.filter(profile => isTrainingStatus(profile.trainingStatus))
+
+  const getProfileHint = (profile) => {
+    const status = profile.trainingStatus || 'draft'
+    if (status === 'finished') return t.training.voiceFinishedHint
+    if (status === 'failed') return profile.trainingError || t.training.voiceFailedHint
+    if (isTrainingStatus(status)) return t.training.voiceTrainingHint
+    return t.training.voiceDraftHint
+  }
 
   const handleVideoChange = async (event) => {
     const file = event.target.files?.[0]
@@ -319,6 +345,33 @@ export function TrainingPage({
         </div>
       </section>
 
+      {activeTrainingProfiles.length > 0 ? (
+        <section className="training-live-panel">
+          <div className="training-live-head">
+            <span className="training-live-dot" />
+            <div>
+              <strong>{t.training.liveTrainingTitle}</strong>
+              <p>{t.training.liveTrainingHint}</p>
+            </div>
+          </div>
+          <div className="training-live-list">
+            {activeTrainingProfiles.map(profile => (
+              <div className="training-live-card" key={profile.id}>
+                <div>
+                  <strong>{profile.name}</strong>
+                  <span>
+                    {t.training.voiceTrainingStates?.[profile.trainingStatus || 'training']}
+                    {profile.audioMinutes ? ` · ${profile.audioMinutes} ${t.training.minutes}` : ''}
+                    {profile.trainingStartedAt ? ` · ${t.training.startedAt} ${formatDateTime(profile.trainingStartedAt)}` : ''}
+                  </span>
+                </div>
+                <em>{t.training.notReadyForTasks}</em>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="training-grid">
         <div className="training-panel">
           <div className="training-panel-head">
@@ -384,10 +437,10 @@ export function TrainingPage({
           </button>
 
           <div className="voice-profile-list">
-            {voiceProfiles.filter(profile => !profile.builtIn && profile.id !== 'default_voice').length === 0 ? (
+            {customVoiceProfiles.length === 0 ? (
               <div className="audio-empty">{t.training.noVoiceProfiles}</div>
-            ) : voiceProfiles.filter(profile => !profile.builtIn && profile.id !== 'default_voice').map(profile => (
-              <div className="voice-profile-card" key={profile.id}>
+            ) : customVoiceProfiles.map(profile => (
+              <div className={`voice-profile-card card-${profile.trainingStatus || 'draft'}`} key={profile.id}>
                 <div>
                   <strong>{profile.name}</strong>
                   <em className={`voice-training-state state-${profile.trainingStatus || 'draft'}`}>
@@ -398,6 +451,7 @@ export function TrainingPage({
                     {profile.dialect ? ` · ${t.voiceDialects?.[profile.dialect] || profile.dialect}` : ''}
                     {profile.audioMinutes ? ` · ${profile.audioMinutes} ${t.training.minutes}` : ''}
                   </span>
+                  <small>{getProfileHint(profile)}</small>
                 </div>
                 <button className="btn btn-ghost btn-xs" type="button" onClick={() => onDeleteVoiceProfile(profile.id)}>
                   {t.training.remove}
