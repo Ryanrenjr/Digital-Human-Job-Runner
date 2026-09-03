@@ -104,6 +104,12 @@ export default function App() {
     return profile
   }
 
+  const handleRetryVoiceTraining = async (voiceId) => {
+    const profile = await api.retryVoiceTraining(voiceId)
+    setVoiceProfiles(prev => mergeVoiceProfiles(prev, [profile]))
+    return profile
+  }
+
   const handleDeleteVoiceProfile = (profileId) => {
     saveVoiceProfiles(voiceProfiles.filter(p => p.builtIn || p.id !== profileId))
   }
@@ -369,6 +375,7 @@ export default function App() {
           voiceProfiles={voiceProfiles}
           onCreateVoiceProfile={handleCreateVoiceProfile}
           onTrainVoiceProfile={handleTrainVoiceProfile}
+          onRetryVoiceTraining={handleRetryVoiceTraining}
           onDeleteVoiceProfile={handleDeleteVoiceProfile}
           onUploadAvatarVideo={handleUploadTrainingAvatarVideo}
           uploadingAvatarVideo={uploadingBackground}

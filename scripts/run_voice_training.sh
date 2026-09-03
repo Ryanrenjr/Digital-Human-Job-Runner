@@ -60,12 +60,12 @@ echo ""
 echo "Step 1: Convert uploaded files to 16k wav"
 find "$RAW_WAV_DIR" -type f -name "*.wav" -delete
 idx=0
-find "$RAW_DIR" -maxdepth 1 -type f | sort | while read -r src; do
+while IFS= read -r src; do
     idx=$((idx + 1))
     out="$RAW_WAV_DIR/raw_$(printf '%04d' "$idx").wav"
     echo "Converting: $src -> $out"
-    ffmpeg -y -i "$src" -vn -ac 1 -ar 16000 "$out"
-done
+    ffmpeg -nostdin -y -i "$src" -vn -ac 1 -ar 16000 "$out"
+done < <(find "$RAW_DIR" -maxdepth 1 -type f | sort)
 
 if ! ls "$RAW_WAV_DIR"/*.wav >/dev/null 2>&1; then
     fail_voice "没有可训练的音频文件。"

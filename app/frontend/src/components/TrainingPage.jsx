@@ -182,6 +182,7 @@ export function TrainingPage({
   voiceProfiles,
   onCreateVoiceProfile,
   onTrainVoiceProfile,
+  onRetryVoiceTraining,
   onDeleteVoiceProfile,
   onUploadAvatarVideo,
   uploadingAvatarVideo,
@@ -198,6 +199,7 @@ export function TrainingPage({
   const [profileStyle, setProfileStyle] = useState('professional_calm')
   const [trainingNotice, setTrainingNotice] = useState('')
   const [trainingBusy, setTrainingBusy] = useState(false)
+  const [retryingVoiceId, setRetryingVoiceId] = useState('')
   const [videoNotice, setVideoNotice] = useState('')
 
   const totalAudioSeconds = audioFiles.reduce((sum, f) => sum + f.duration, 0)
@@ -247,6 +249,23 @@ export function TrainingPage({
     setTrainingNotice(t.training.savedDraftNeedReupload.replace('{name}', profile.name || t.training.thisVoice))
     audioSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     window.setTimeout(() => audioRef.current?.click(), 260)
+  }
+
+  const handleRetryProfile = async (profile) => {
+    if (!onRetryVoiceTraining) {
+      setTrainingNotice(t.training.trainingBackendMissing)
+      return
+    }
+    setRetryingVoiceId(profile.id)
+    setTrainingNotice(t.training.trainingRestarting.replace('{name}', profile.name || t.training.thisVoice))
+    try {
+      const restarted = await onRetryVoiceTraining(profile.id)
+      setTrainingNotice(t.training.trainingStartedReal.replace('{name}', restarted.name || profile.name))
+    } catch (e) {
+      setTrainingNotice(`${t.training.trainingStartFailed}${e.detail || e.message}`)
+    } finally {
+      setRetryingVoiceId('')
+    }
   }
 
   const handleVideoChange = async (event) => {
@@ -478,8 +497,13 @@ export function TrainingPage({
                 </div>
                 <div className="voice-profile-actions">
                   {getProfileActionText(profile) ? (
-                    <button className="btn btn-primary btn-xs" type="button" onClick={() => handleContinueProfile(profile)}>
-                      {getProfileActionText(profile)}
+                    <button
+                      className="btn btn-primary btn-xs"
+                      type="button"
+                      disabled={retryingVoiceId === profile.id}
+                      onClick={() => (profile.trainingStatus === 'failed' ? handleRetryProfile(profile) : handleContinueProfile(profile))}
+                    >
+                      {retryingVoiceId === profile.id ? t.training.trainingStarting : getProfileActionText(profile)}
                     </button>
                   ) : null}
                   <button className="btn btn-ghost btn-xs" type="button" onClick={() => onDeleteVoiceProfile(profile.id)}>

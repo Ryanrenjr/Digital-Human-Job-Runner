@@ -54,7 +54,11 @@ def start_voice_training(voice_id: str) -> int:
 
     profile["trainingStatus"] = "training"
     profile["trainingStartedAt"] = _now_iso()
+    profile["trainingFinishedAt"] = None
     profile["trainingError"] = None
+    profile["checkpointPath"] = None
+    profile["referenceWavPath"] = None
+    profile["referenceText"] = ""
     save_voice_profile(profile)
 
     if sys.platform.startswith("win"):

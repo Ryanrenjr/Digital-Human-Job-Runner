@@ -150,6 +150,27 @@ def get_voice_log(voice_id: str):
     return {"voice_id": voice_id, "log": "\n".join(tail), "lines": len(tail)}
 
 
+@app.post("/voices/{voice_id}/retry")
+def retry_voice_training(voice_id: str):
+    profile = load_voice_profile(voice_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Voice not found: {voice_id}")
+
+    raw_dir = AI_WORKSPACE / "voices" / voice_id / "raw_uploads"
+    if not raw_dir.exists() or not any(raw_dir.iterdir()):
+        raise HTTPException(status_code=400, detail="这个声音没有可训练的原始素材，请重新上传声音素材。")
+
+    try:
+        pid = start_voice_training(voice_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"重新启动声音训练失败：{exc}")
+
+    profile = load_voice_profile(voice_id) or profile
+    profile["trainingPid"] = pid
+    save_voice_profile(profile)
+    return profile
+
+
 @app.post("/voices/train")
 async def train_voice(
     name: str = Form(...),
