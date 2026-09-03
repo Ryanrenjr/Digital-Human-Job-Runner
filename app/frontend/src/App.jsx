@@ -166,6 +166,12 @@ export default function App() {
     }
   }
 
+  const handleUploadTrainingAvatarVideo = async (file) => {
+    const background = await handleUploadBackground(file)
+    if (background) handlePageChange('jobs')
+    return background
+  }
+
   const handleDeleteBackground = async (bgId) => {
     if (!window.confirm(t.backgrounds.deleteConfirm)) return
     try {
@@ -326,7 +332,7 @@ export default function App() {
           voiceProfiles={voiceProfiles}
           onCreateVoiceProfile={handleCreateVoiceProfile}
           onDeleteVoiceProfile={handleDeleteVoiceProfile}
-          onUploadAvatarVideo={handleUploadBackground}
+          onUploadAvatarVideo={handleUploadTrainingAvatarVideo}
           uploadingAvatarVideo={uploadingBackground}
         />
       ) : (

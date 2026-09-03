@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BackgroundPicker }    from './BackgroundPicker'
 import { AIScriptAssistant }   from './AIScriptAssistant'
 import {
@@ -40,6 +40,12 @@ export function CreateJobForm({
   const [fields, setFields] = useState(INITIAL)
   const [errors, setErrors] = useState({})
 
+  useEffect(() => {
+    if (fields.output_type !== 'clean_video') return
+    if (fields.background_id || backgrounds.length === 0) return
+    setFields(f => ({ ...f, background_id: backgrounds[0].id }))
+  }, [backgrounds, fields.background_id, fields.output_type])
+
   const set = (key, value) => {
     setFields(f => {
       const next = { ...f, [key]: value }
@@ -64,7 +70,7 @@ export function CreateJobForm({
     if (!fields.title.trim())  e.title  = t.form.required
     if (!fields.script.trim()) e.script = t.form.required
     if (fields.output_type === 'clean_video' && !fields.background_id)
-      e.background_id = t.form.required
+      e.background_id = t.form.backgroundRequired
     setErrors(e)
     return Object.keys(e).length === 0
   }
