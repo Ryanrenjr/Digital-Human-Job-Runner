@@ -359,9 +359,9 @@ export function TrainingPage({
           </button>
 
           <div className="voice-profile-list">
-            {voiceProfiles.filter(profile => profile.id !== 'default_voice').length === 0 ? (
+            {voiceProfiles.filter(profile => !profile.builtIn && profile.id !== 'default_voice').length === 0 ? (
               <div className="audio-empty">{t.training.noVoiceProfiles}</div>
-            ) : voiceProfiles.filter(profile => profile.id !== 'default_voice').map(profile => (
+            ) : voiceProfiles.filter(profile => !profile.builtIn && profile.id !== 'default_voice').map(profile => (
               <div className="voice-profile-card" key={profile.id}>
                 <div>
                   <strong>{profile.name}</strong>

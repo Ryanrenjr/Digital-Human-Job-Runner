@@ -39,6 +39,8 @@ export function CreateJobForm({
 }) {
   const [fields, setFields] = useState(INITIAL)
   const [errors, setErrors] = useState({})
+  const selectedVoiceProfile = voiceProfiles.find(profile => profile.id === fields.voice_id)
+  const selectedVoiceIsFixed = selectedVoiceProfile?.trainingStatus === 'finished'
 
   useEffect(() => {
     if (fields.output_type !== 'clean_video') return
@@ -175,6 +177,7 @@ export function CreateJobForm({
             <select
               className="form-select"
               value={fields.voice_language}
+              disabled={selectedVoiceIsFixed}
               onChange={e => set('voice_language', e.target.value)}
             >
               {VOICE_LANGUAGES.map(([value, label]) => (
@@ -189,6 +192,7 @@ export function CreateJobForm({
               <select
                 className="form-select"
                 value={fields.voice_dialect}
+                disabled={selectedVoiceIsFixed}
                 onChange={e => set('voice_dialect', e.target.value)}
               >
                 {CHINESE_DIALECTS.map(([value, label]) => (
@@ -203,6 +207,7 @@ export function CreateJobForm({
             <select
               className="form-select"
               value={fields.voice_style}
+              disabled={selectedVoiceIsFixed}
               onChange={e => set('voice_style', e.target.value)}
             >
               {VOICE_STYLE_PRESETS.map(([value, label]) => (
@@ -211,6 +216,9 @@ export function CreateJobForm({
             </select>
           </label>
         </div>
+        {selectedVoiceIsFixed && (
+          <div className="form-hint voice-fixed-hint">{t.form.trainedVoiceFixedHint}</div>
+        )}
       </div>
 
       {/* ── Background picker (clean_video only) ── */}

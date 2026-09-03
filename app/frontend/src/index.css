@@ -231,6 +231,14 @@ body {
 }
 .form-textarea { resize: vertical; min-height: 280px; line-height: 1.65; }
 .form-hint  { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+.voice-fixed-hint {
+  padding: 0.6rem 0.7rem;
+  border-radius: var(--ios-radius, 8px);
+  background: rgba(0, 122, 255, 0.08);
+  color: #0B5CAD;
+  line-height: 1.5;
+}
 .form-error { font-size: 0.75rem; color: var(--error);      margin-top: 0.3rem; }
 
 .form-row { display: flex; gap: 0.75rem; }
