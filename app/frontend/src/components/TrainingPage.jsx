@@ -406,6 +406,12 @@ export function TrainingPage({
                     {profile.audioMinutes ? ` · ${profile.audioMinutes} ${t.training.minutes}` : ''}
                     {profile.trainingStartedAt ? ` · ${t.training.startedAt} ${formatDateTime(profile.trainingStartedAt)}` : ''}
                   </span>
+                  {profile.trainingProgressText ? <small>{profile.trainingProgressText}</small> : null}
+                  {typeof profile.trainingProgressPercent === 'number' ? (
+                    <div className="voice-progress-track">
+                      <div className="voice-progress-fill" style={{ width: `${profile.trainingProgressPercent}%` }} />
+                    </div>
+                  ) : null}
                 </div>
                 <em>{t.training.notReadyForTasks}</em>
               </div>
@@ -493,6 +499,7 @@ export function TrainingPage({
                     {profile.dialect ? ` · ${t.voiceDialects?.[profile.dialect] || profile.dialect}` : ''}
                     {profile.audioMinutes ? ` · ${profile.audioMinutes} ${t.training.minutes}` : ''}
                   </span>
+                  {profile.trainingProgressText ? <small>{profile.trainingProgressText}</small> : null}
                   <small>{getProfileHint(profile)}</small>
                 </div>
                 <div className="voice-profile-actions">

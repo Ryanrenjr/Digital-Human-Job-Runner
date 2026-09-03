@@ -1889,6 +1889,30 @@ body {
   font-size: 0.8rem;
 }
 
+.training-live-card small {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--accent-blue);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.voice-progress-track {
+  width: min(360px, 100%);
+  height: 0.35rem;
+  margin-top: 0.55rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(0, 122, 255, 0.13);
+}
+
+.voice-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent-blue);
+  transition: width 240ms ease;
+}
+
 .training-live-card em {
   flex: 0 0 auto;
   padding: 0.28rem 0.6rem;

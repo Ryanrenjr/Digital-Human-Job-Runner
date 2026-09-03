@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import shutil
 import subprocess
 from contextlib import asynccontextmanager
@@ -124,9 +125,67 @@ def health():
 
 # ============================================================ VOICES
 
+def _with_voice_progress(profile: dict) -> dict:
+    result = dict(profile)
+    log_path = _host_path(result.get("trainingLogPath"))
+    if not log_path.exists():
+        return result
+
+    lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    tail = lines[-300:]
+    progress_text = ""
+    progress_percent = None
+
+    for line in reversed(tail):
+        if "[ERROR]" in line:
+            progress_text = line.replace("[ERROR]", "").strip()
+            break
+        if "Voice training finished" in line:
+            progress_text = "声音训练完成"
+            progress_percent = 100
+            break
+        if line.startswith("Step 6:"):
+            progress_text = "正在训练声音模型"
+            progress_percent = 70
+            break
+        if line.startswith("Step 5:"):
+            progress_text = "正在准备训练参数"
+            progress_percent = 62
+            break
+        if line.startswith("Step 4:"):
+            progress_text = "正在整理训练数据"
+            progress_percent = 58
+            break
+        if line.startswith("Step 3:"):
+            progress_text = "正在识别每段声音的文字"
+            progress_percent = 35
+            break
+        if line.startswith("Step 2:"):
+            progress_text = "正在切出可训练的人声片段"
+            progress_percent = 20
+            break
+        if line.startswith("Step 1:"):
+            progress_text = "正在从素材里提取声音"
+            progress_percent = 8
+            break
+
+    for line in reversed(tail):
+        match = re.search(r"\[(\d+)/(\d+)\]", line)
+        if match:
+            current = int(match.group(1))
+            total = max(1, int(match.group(2)))
+            progress_text = f"正在识别声音文字：{current}/{total} 段"
+            progress_percent = min(57, 35 + round((current / total) * 22))
+            break
+
+    result["trainingProgressText"] = progress_text
+    result["trainingProgressPercent"] = progress_percent
+    return result
+
+
 @app.get("/voices")
 def get_voices():
-    return list_voice_profiles()
+    return [_with_voice_progress(profile) for profile in list_voice_profiles()]
 
 
 @app.get("/voices/{voice_id}")
@@ -134,7 +193,7 @@ def get_voice(voice_id: str):
     profile = load_voice_profile(voice_id)
     if profile is None:
         raise HTTPException(status_code=404, detail=f"Voice not found: {voice_id}")
-    return profile
+    return _with_voice_progress(profile)
 
 
 @app.get("/voices/{voice_id}/log")
