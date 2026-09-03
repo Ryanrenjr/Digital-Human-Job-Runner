@@ -188,6 +188,7 @@ export function TrainingPage({
 }) {
   const videoRef = useRef(null)
   const audioRef = useRef(null)
+  const audioSectionRef = useRef(null)
   const [video, setVideo] = useState(null)
   const [videoInfo, setVideoInfo] = useState({ duration: 0, width: 0, height: 0 })
   const [audioFiles, setAudioFiles] = useState([])
@@ -223,7 +224,29 @@ export function TrainingPage({
     if (status === 'finished') return t.training.voiceFinishedHint
     if (status === 'failed') return profile.trainingError || t.training.voiceFailedHint
     if (isTrainingStatus(status)) return t.training.voiceTrainingHint
+    const minutes = Number(profile.audioMinutes || 0)
+    if (minutes > 0 && minutes < AUDIO_MIN_MINUTES) {
+      return t.training.voiceDraftNeedMore.replace('{minutes}', (AUDIO_MIN_MINUTES - minutes).toFixed(1))
+    }
     return t.training.voiceDraftHint
+  }
+
+  const getProfileActionText = (profile) => {
+    const status = profile.trainingStatus || 'draft'
+    if (status === 'finished' || isTrainingStatus(status)) return ''
+    if (status === 'failed') return t.training.retryTraining
+    const minutes = Number(profile.audioMinutes || 0)
+    return minutes >= AUDIO_MIN_MINUTES ? t.training.reuploadToTrain : t.training.continueMaterial
+  }
+
+  const handleContinueProfile = (profile) => {
+    setProfileName(profile.name || '')
+    setProfileLanguage(profile.language || 'zh')
+    setProfileDialect(profile.language === 'zh' ? (profile.dialect || 'mandarin') : '')
+    setProfileStyle(profile.style || 'professional_calm')
+    setTrainingNotice(t.training.savedDraftNeedReupload.replace('{name}', profile.name || t.training.thisVoice))
+    audioSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    window.setTimeout(() => audioRef.current?.click(), 260)
   }
 
   const handleVideoChange = async (event) => {
@@ -453,9 +476,16 @@ export function TrainingPage({
                   </span>
                   <small>{getProfileHint(profile)}</small>
                 </div>
-                <button className="btn btn-ghost btn-xs" type="button" onClick={() => onDeleteVoiceProfile(profile.id)}>
-                  {t.training.remove}
-                </button>
+                <div className="voice-profile-actions">
+                  {getProfileActionText(profile) ? (
+                    <button className="btn btn-primary btn-xs" type="button" onClick={() => handleContinueProfile(profile)}>
+                      {getProfileActionText(profile)}
+                    </button>
+                  ) : null}
+                  <button className="btn btn-ghost btn-xs" type="button" onClick={() => onDeleteVoiceProfile(profile.id)}>
+                    {t.training.remove}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -533,7 +563,7 @@ export function TrainingPage({
           {videoNotice ? <div className="training-notice">{videoNotice}</div> : null}
         </div>
 
-        <div className="training-panel">
+        <div className="training-panel" ref={audioSectionRef}>
           <div className="training-panel-head">
             <div>
               <h2>{t.training.audioTitle}</h2>

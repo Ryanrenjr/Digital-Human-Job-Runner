@@ -2192,7 +2192,7 @@ body {
 
 .voice-profile-card {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.75rem;
@@ -2261,6 +2261,13 @@ body {
   margin-top: 0.28rem;
   color: var(--text-soft);
   font-size: 0.74rem;
+}
+
+.voice-profile-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .standard-grid {
