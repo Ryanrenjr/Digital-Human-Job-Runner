@@ -128,7 +128,7 @@ echo "===================================="
 cd "$ENGINE_WORKSPACE/projects/VoxCPM"
 source "$HOME/miniconda3/etc/profile.d/conda.sh"
 conda activate voxcpm
-python generate_voice_and_timeline_voxcpm2.py
+PYTHONPATH="$ENGINE_WORKSPACE/projects/VoxCPM:$PYTHONPATH" python "$AI_WORKSPACE/scripts/generate_voice_dynamic.py"
 
 # ============================================================
 echo ""

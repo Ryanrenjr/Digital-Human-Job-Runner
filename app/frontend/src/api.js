@@ -30,6 +30,29 @@ export const getJobLog      = (jobId)   => request('GET',    `/jobs/${jobId}/log
 export const getVideoUrl    = (jobId)   => `${BASE_URL}/jobs/${jobId}/download`
 export const getVoiceUrl   = (jobId)   => `${BASE_URL}/jobs/${jobId}/download-voice`
 
+// Voice training
+export const getVoices = () => request('GET', '/voices')
+export const getVoiceLog = (voiceId) => request('GET', `/voices/${voiceId}/log`)
+export const trainVoice = async ({ name, language, dialect, style, audioMinutes, audioScore, files }) => {
+  const form = new FormData()
+  form.append('name', name)
+  form.append('language', language)
+  form.append('dialect', dialect || '')
+  form.append('style', style || 'friendly_natural')
+  form.append('audio_minutes', String(audioMinutes || 0))
+  form.append('audio_score', String(audioScore || 0))
+  files.forEach(file => form.append('files', file))
+  const res = await fetch(`${BASE_URL}/voices/train`, { method: 'POST', body: form })
+  const data = await res.json().catch(() => ({ detail: res.statusText }))
+  if (!res.ok) {
+    const err = new Error(data.detail || JSON.stringify(data))
+    err.status = res.status
+    err.detail = data.detail
+    throw err
+  }
+  return data
+}
+
 // Background management
 export const deleteBackground = (bgId) => request('DELETE', `/backgrounds/${bgId}`)
 export const getThumbnailUrl  = (bgId) => `${BASE_URL}/backgrounds/${bgId}/thumbnail`

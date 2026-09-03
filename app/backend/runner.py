@@ -195,7 +195,6 @@ def _trained_voice_ready(job: dict) -> bool:
     return (
         job.get("voice_training_status") == "finished"
         and bool(job.get("voice_checkpoint_path"))
-        and Path(str(job["voice_checkpoint_path"])).exists()
     )
 
 

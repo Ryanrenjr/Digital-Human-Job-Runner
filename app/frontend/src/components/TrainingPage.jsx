@@ -165,6 +165,7 @@ export function TrainingPage({
   t,
   voiceProfiles,
   onCreateVoiceProfile,
+  onTrainVoiceProfile,
   onDeleteVoiceProfile,
   onUploadAvatarVideo,
   uploadingAvatarVideo,
@@ -179,6 +180,7 @@ export function TrainingPage({
   const [profileDialect, setProfileDialect] = useState('mandarin')
   const [profileStyle, setProfileStyle] = useState('professional_calm')
   const [trainingNotice, setTrainingNotice] = useState('')
+  const [trainingBusy, setTrainingBusy] = useState(false)
   const [videoNotice, setVideoNotice] = useState('')
 
   const totalAudioSeconds = audioFiles.reduce((sum, f) => sum + f.duration, 0)
@@ -223,6 +225,7 @@ export function TrainingPage({
     setTrainingNotice('')
     const enriched = await Promise.all(files.map(async file => ({
       id: `${file.name}-${file.size}-${file.lastModified}`,
+      file,
       name: file.name,
       size: file.size,
       sourceType: getSoundSourceType(file),
@@ -264,10 +267,31 @@ export function TrainingPage({
     }
   }
 
-  const handleStartTraining = () => {
+  const handleStartTraining = async () => {
     if (!canStartTraining) return
-    if (createProfileFromCurrentMaterial('training_requested')) {
-      setTrainingNotice(t.training.trainingQueued)
+    if (!onTrainVoiceProfile) {
+      setTrainingNotice(t.training.trainingBackendMissing)
+      return
+    }
+    setTrainingBusy(true)
+    setTrainingNotice(t.training.trainingUploading)
+    try {
+      const profile = await onTrainVoiceProfile({
+        name: profileName.trim(),
+        language: profileLanguage,
+        dialect: profileLanguage === 'zh' ? profileDialect : '',
+        style: profileStyle,
+        audioMinutes: Number(totalAudioMinutes.toFixed(1)),
+        audioScore: audioScore.score,
+        files: audioFiles.map(item => item.file).filter(Boolean),
+      })
+      setProfileName('')
+      setAudioFiles([])
+      setTrainingNotice(t.training.trainingStartedReal.replace('{name}', profile.name))
+    } catch (e) {
+      setTrainingNotice(`${t.training.trainingStartFailed}${e.detail || e.message}`)
+    } finally {
+      setTrainingBusy(false)
     }
   }
 
@@ -277,6 +301,7 @@ export function TrainingPage({
       return t.training.trainNeedMore.replace('{minutes}', remainingTrainingMinutes.toFixed(1))
     }
     if (!profileName.trim()) return t.training.trainNameFirst
+    if (trainingBusy) return t.training.trainingStarting
     return t.training.startTraining
   }
 
@@ -533,7 +558,7 @@ export function TrainingPage({
             <button
               className="btn btn-primary btn-sm"
               type="button"
-              disabled={!canStartTraining}
+              disabled={!canStartTraining || trainingBusy}
               onClick={handleStartTraining}
             >
               {getTrainingButtonText()}

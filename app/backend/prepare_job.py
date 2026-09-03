@@ -159,6 +159,9 @@ def write_input_files(job: dict, job_input_dir: Path) -> None:
         "dialect": job.get("voice_dialect", ""),
         "mode": job.get("voice_mode", "basic_tts"),
         "style": job.get("voice_style", "professional_calm"),
+        "checkpoint_path": job.get("voice_checkpoint_path") or "",
+        "reference_wav_path": job.get("voice_reference_wav_path") or "",
+        "reference_text": job.get("voice_reference_text") or "",
     }
     voice_prompt = build_voice_prompt(voice_profile)
 

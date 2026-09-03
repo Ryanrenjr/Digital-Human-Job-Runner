@@ -14,6 +14,10 @@ class JobCreateRequest(BaseModel):
     voice_dialect: Optional[str] = "mandarin"
     voice_mode: str = "basic_tts"
     voice_style: str = "professional_calm"
+    voice_checkpoint_path: Optional[str] = None
+    voice_reference_wav_path: Optional[str] = None
+    voice_reference_text: Optional[str] = None
+    voice_training_status: Optional[str] = None
     output_type: str = "clean_video"
     shutdown_after_done: bool = False
     subtitle_lines: Optional[List[str]] = None

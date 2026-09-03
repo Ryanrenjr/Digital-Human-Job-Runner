@@ -1,11 +1,12 @@
 import logging
+import os
 import shutil
 import subprocess
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -34,6 +35,8 @@ from schemas import (
 )
 import script_assistant
 from settings import AI_WORKSPACE, APP_NAME, APP_VERSION, EXTRA_CORS_ORIGINS, VITE_FRONTEND_ORIGIN
+from voice_store import list_voice_profiles, load_voice_profile, make_voice_id, save_voice_profile
+from voice_training_runner import start_voice_training
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -117,6 +120,103 @@ def health():
 
 
 # ============================================================ BACKGROUNDS
+
+
+# ============================================================ VOICES
+
+@app.get("/voices")
+def get_voices():
+    return list_voice_profiles()
+
+
+@app.get("/voices/{voice_id}")
+def get_voice(voice_id: str):
+    profile = load_voice_profile(voice_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Voice not found: {voice_id}")
+    return profile
+
+
+@app.get("/voices/{voice_id}/log")
+def get_voice_log(voice_id: str):
+    profile = load_voice_profile(voice_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Voice not found: {voice_id}")
+    log_path = _host_path(profile.get("trainingLogPath"))
+    if not log_path.exists():
+        return {"voice_id": voice_id, "log": "", "lines": 0}
+    lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    tail = lines[-200:]
+    return {"voice_id": voice_id, "log": "\n".join(tail), "lines": len(tail)}
+
+
+@app.post("/voices/train")
+async def train_voice(
+    name: str = Form(...),
+    language: str = Form("zh"),
+    dialect: str = Form("mandarin"),
+    style: str = Form("friendly_natural"),
+    audio_minutes: float = Form(0),
+    audio_score: int = Form(0),
+    files: list[UploadFile] = File(...),
+):
+    clean_name = name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="请先填写声音名称。")
+    if not files:
+        raise HTTPException(status_code=400, detail="请先上传声音素材。")
+
+    voice_id = make_voice_id(clean_name)
+    voice_dir = AI_WORKSPACE / "voices" / voice_id
+    raw_dir = voice_dir / "raw_uploads"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_files = []
+    for index, file in enumerate(files, 1):
+        if not file.filename:
+            continue
+        suffix = Path(file.filename).suffix.lower()
+        if suffix not in {".wav", ".mp3", ".m4a", ".mp4", ".mov", ".webm"}:
+            raise HTTPException(status_code=400, detail=f"不支持的声音素材格式：{file.filename}")
+        safe_name = f"{index:04d}_{Path(file.filename).name}"
+        dst = raw_dir / safe_name
+        content = await file.read()
+        dst.write_bytes(content)
+        saved_files.append({"name": file.filename, "path": str(dst), "size": len(content)})
+
+    if not saved_files:
+        raise HTTPException(status_code=400, detail="没有收到可用的声音素材文件。")
+
+    profile = {
+        "id": voice_id,
+        "name": clean_name,
+        "language": language,
+        "dialect": dialect if language == "zh" else "",
+        "style": style,
+        "mode": "lora_finetune",
+        "trainingStatus": "queued",
+        "audioMinutes": audio_minutes,
+        "audioScore": audio_score,
+        "audioFiles": saved_files,
+        "createdAt": datetime.now().isoformat(),
+        "updatedAt": datetime.now().isoformat(),
+        "trainingLogPath": str(voice_dir / "train.log"),
+        "checkpointPath": None,
+        "referenceWavPath": None,
+        "referenceText": "",
+        "trainingError": None,
+    }
+    save_voice_profile(profile)
+
+    try:
+        pid = start_voice_training(voice_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"启动声音训练失败：{exc}")
+
+    profile = load_voice_profile(voice_id) or profile
+    profile["trainingPid"] = pid
+    save_voice_profile(profile)
+    return profile
 
 @app.get("/backgrounds")
 def get_backgrounds():
@@ -327,6 +427,12 @@ def create_job_endpoint(req: JobCreateRequest):
             detail=f"output_type '{req.output_type}' is not supported. Use 'clean_video' or 'voice_only'.",
         )
     try:
+        voice_profile = load_voice_profile(req.voice_id) if req.voice_id else None
+        if voice_profile:
+            req.voice_checkpoint_path = voice_profile.get("checkpointPath")
+            req.voice_reference_wav_path = voice_profile.get("referenceWavPath")
+            req.voice_reference_text = voice_profile.get("referenceText", "")
+            req.voice_training_status = voice_profile.get("trainingStatus")
         job = create_job(req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create job: {e}")

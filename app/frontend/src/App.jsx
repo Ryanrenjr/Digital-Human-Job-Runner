@@ -42,6 +42,13 @@ function loadVoiceProfiles() {
   }
 }
 
+function mergeVoiceProfiles(current, incoming) {
+  const map = new Map()
+  for (const profile of current) map.set(profile.id, profile)
+  for (const profile of incoming) map.set(profile.id, profile)
+  return Array.from(map.values())
+}
+
 export default function App() {
   const [backendOnline,       setBackendOnline]       = useState(null)
   const [backgrounds,         setBackgrounds]         = useState([])
@@ -91,6 +98,12 @@ export default function App() {
     saveVoiceProfiles([...voiceProfiles.filter(p => p.id !== profile.id), profile])
   }
 
+  const handleTrainVoiceProfile = async (payload) => {
+    const profile = await api.trainVoice(payload)
+    setVoiceProfiles(prev => mergeVoiceProfiles(prev, [profile]))
+    return profile
+  }
+
   const handleDeleteVoiceProfile = (profileId) => {
     saveVoiceProfiles(voiceProfiles.filter(p => p.builtIn || p.id !== profileId))
   }
@@ -109,6 +122,15 @@ export default function App() {
   const loadJobs = useCallback(async () => {
     try   { setJobs(await api.getJobs()) }
     catch (e) { console.warn('jobs:', e) }
+  }, [])
+
+  const loadBackendVoiceProfiles = useCallback(async () => {
+    try {
+      const profiles = await api.getVoices()
+      setVoiceProfiles(prev => mergeVoiceProfiles(prev, profiles))
+    } catch (e) {
+      console.warn('voices:', e)
+    }
   }, [])
 
   const loadQueueStatus = useCallback(async () => {
@@ -139,14 +161,14 @@ export default function App() {
     return () => clearInterval(timer)
   }, [checkHealth])
 
-  useEffect(() => { loadBackgrounds() }, [loadBackgrounds])
+  useEffect(() => { loadBackgrounds(); loadBackendVoiceProfiles() }, [loadBackgrounds, loadBackendVoiceProfiles])
 
   useEffect(() => {
     loadJobs()
     loadQueueStatus()
-    const timer = setInterval(() => { loadJobs(); loadQueueStatus() }, 5_000)
+    const timer = setInterval(() => { loadJobs(); loadQueueStatus(); loadBackendVoiceProfiles() }, 5_000)
     return () => clearInterval(timer)
-  }, [loadJobs, loadQueueStatus])
+  }, [loadJobs, loadQueueStatus, loadBackendVoiceProfiles])
 
   useEffect(() => {
     if (!selectedJobId) { setJobLog(null); return }
@@ -346,6 +368,7 @@ export default function App() {
           t={t}
           voiceProfiles={voiceProfiles}
           onCreateVoiceProfile={handleCreateVoiceProfile}
+          onTrainVoiceProfile={handleTrainVoiceProfile}
           onDeleteVoiceProfile={handleDeleteVoiceProfile}
           onUploadAvatarVideo={handleUploadTrainingAvatarVideo}
           uploadingAvatarVideo={uploadingBackground}
