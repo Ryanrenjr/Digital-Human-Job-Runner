@@ -341,7 +341,7 @@ export const translations = {
       audioEmpty: 'No audio files yet. Upload WAV, MP3, or M4A clips.',
       remove: 'Remove',
       standardTitle: 'High Standard Checklist',
-      standardSubtitle: 'Better input quality matters more than clever post-processing.',
+      standardSubtitle: 'Better input quality makes the generated video easier to trust.',
       audioStandardTitle: 'Audio requirements',
       audioRules: [
         'Minimum 30 minutes of clean speech',
@@ -726,7 +726,7 @@ export const translations = {
       audioEmpty: '还没有音频文件。支持常见音频格式。',
       remove: '移除',
       standardTitle: '高标准检查表',
-      standardSubtitle: '输入素材质量比后期补救更重要。',
+      standardSubtitle: '输入素材质量越好，生成视频越稳定。',
       audioStandardTitle: '音频要求',
       audioRules: [
         '最低 30 分钟干净人声',
