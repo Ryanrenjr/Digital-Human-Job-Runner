@@ -9,6 +9,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+from pathlib import PureWindowsPath
 from settings import (
     BACKGROUNDS_JSON,
     DEFAULT_AVATAR_VIDEO,
@@ -36,6 +37,16 @@ def save_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def host_path(path_value: str) -> Path:
+    raw = str(path_value)
+    if len(raw) >= 3 and raw[1] == ":" and raw[2] in {"\\", "/"}:
+        win_path = PureWindowsPath(raw)
+        drive = win_path.drive.rstrip(":").lower()
+        parts = "/".join(win_path.parts[1:])
+        return Path(f"/mnt/{drive}/{parts}")
+    return Path(raw)
+
+
 def fail_job(job_path: Path | None, msg: str) -> None:
     print(f"[ERROR] {msg}", file=sys.stderr)
     if job_path and job_path.exists():
@@ -54,7 +65,7 @@ def fail_job(job_path: Path | None, msg: str) -> None:
 
 
 def validate_job(job: dict, job_id: str) -> None:
-    required = ["job_id", "title", "subtitle", "keywords", "script", "voice_id", "output_type"]
+    required = ["job_id", "title", "script", "voice_id", "output_type"]
     for field in required:
         v = job.get(field)
         if v is None or v == "" or v == []:
@@ -88,8 +99,8 @@ def validate_job(job: dict, job_id: str) -> None:
             f"Configured voices: {sorted(SUPPORTED_VOICE_IDS)} or custom voice profiles."
         )
 
-    if not isinstance(job["keywords"], list) or not all(
-        isinstance(k, str) for k in job["keywords"]
+    if not isinstance(job.get("keywords", []), list) or not all(
+        isinstance(k, str) for k in job.get("keywords", [])
     ):
         raise ValueError("keywords must be a list of strings.")
 
@@ -105,7 +116,7 @@ def resolve_background(background_id: str) -> Path:
     backgrounds = json.loads(BACKGROUNDS_JSON.read_text(encoding="utf-8"))
     for bg in backgrounds:
         if bg["id"] == background_id:
-            p = Path(bg["path"])
+            p = host_path(bg["path"])
             if not p.exists():
                 raise FileNotFoundError(
                     f"Background file not found: {p} (id={background_id})"

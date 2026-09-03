@@ -237,7 +237,7 @@ export function TrainingPage({
     setAudioFiles(prev => prev.filter(file => file.id !== id))
   }
 
-  const createProfileFromCurrentMaterial = () => {
+  const createProfileFromCurrentMaterial = (trainingStatus = 'draft') => {
     const name = profileName.trim()
     if (!name || totalAudioSeconds <= 0) return false
     onCreateVoiceProfile({
@@ -247,6 +247,7 @@ export function TrainingPage({
       dialect: profileLanguage === 'zh' ? profileDialect : '',
       style: profileStyle,
       mode: totalAudioMinutes >= AUDIO_MIN_MINUTES ? 'lora_finetune' : 'controllable_clone',
+      trainingStatus,
       audioMinutes: Number(totalAudioMinutes.toFixed(1)),
       audioScore: audioScore.score,
       audioFiles: audioFiles.map(file => ({ name: file.name, duration: file.duration, size: file.size, sourceType: file.sourceType })),
@@ -258,13 +259,15 @@ export function TrainingPage({
   }
 
   const handleSaveProfile = () => {
-    createProfileFromCurrentMaterial()
+    if (createProfileFromCurrentMaterial('draft')) {
+      setTrainingNotice(t.training.profileSavedAsMaterial)
+    }
   }
 
   const handleStartTraining = () => {
     if (!canStartTraining) return
-    if (createProfileFromCurrentMaterial()) {
-      setTrainingNotice(t.training.trainingStarted)
+    if (createProfileFromCurrentMaterial('training_requested')) {
+      setTrainingNotice(t.training.trainingQueued)
     }
   }
 
@@ -362,6 +365,9 @@ export function TrainingPage({
               <div className="voice-profile-card" key={profile.id}>
                 <div>
                   <strong>{profile.name}</strong>
+                  <em className={`voice-training-state state-${profile.trainingStatus || 'draft'}`}>
+                    {t.training.voiceTrainingStates?.[profile.trainingStatus || 'draft']}
+                  </em>
                   <span>
                     {t.voiceLanguages?.[profile.language] || profile.language}
                     {profile.dialect ? ` · ${t.voiceDialects?.[profile.dialect] || profile.dialect}` : ''}

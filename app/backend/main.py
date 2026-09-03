@@ -69,6 +69,15 @@ def _with_live_progress(job: dict) -> dict:
     return job
 
 
+def _host_path(path_value: str | None) -> Path:
+    raw = str(path_value or "")
+    if raw.startswith("/mnt/") and len(raw) > 7 and raw[6] == "/":
+        drive = raw[5].upper()
+        rest = raw[7:].replace("/", "\\")
+        return Path(f"{drive}:\\{rest}")
+    return Path(raw)
+
+
 def _with_artifacts(job: dict) -> dict:
     job_id         = job.get("job_id", "")
     clean_video    = job.get("paths", {}).get("clean_video", "")
@@ -76,9 +85,9 @@ def _with_artifacts(job: dict) -> dict:
     sl_txt_path    = job.get("paths", {}).get("subtitle_lines_txt") or \
                      str(AI_WORKSPACE / "jobs" / job_id / "output" / "subtitle_lines.txt")
     voice_wav      = job.get("paths", {}).get("voice_wav", "")
-    cv_exists      = bool(clean_video and Path(clean_video).exists())
-    sl_exists      = bool(sl_txt_path and Path(sl_txt_path).exists())
-    vw_exists      = bool(voice_wav and Path(voice_wav).exists())
+    cv_exists      = bool(clean_video and _host_path(clean_video).exists())
+    sl_exists      = bool(sl_txt_path and _host_path(sl_txt_path).exists())
+    vw_exists      = bool(voice_wav and _host_path(voice_wav).exists())
     job = dict(job)
     job["artifacts"] = {
         "clean_video_exists":    cv_exists,
@@ -90,7 +99,7 @@ def _with_artifacts(job: dict) -> dict:
     }
     if sl_exists:
         try:
-            job["subtitle_lines_text"] = Path(sl_txt_path).read_text(encoding="utf-8")
+            job["subtitle_lines_text"] = _host_path(sl_txt_path).read_text(encoding="utf-8")
         except Exception:
             pass
     return job
@@ -375,7 +384,7 @@ def get_job_log(job_id: str):
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
     run_log  = job.get("paths", {}).get("run_log", "")
-    log_path = Path(run_log) if run_log else None
+    log_path = _host_path(run_log) if run_log else None
 
     if not log_path or not log_path.exists():
         return {"job_id": job_id, "log": "", "lines": 0}
@@ -407,10 +416,11 @@ def download_job(job_id: str):
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
     clean_video = job.get("paths", {}).get("clean_video", "")
-    if not clean_video or not Path(clean_video).exists():
+    clean_video_path = _host_path(clean_video)
+    if not clean_video or not clean_video_path.exists():
         raise HTTPException(status_code=404, detail="clean_video.mp4 not found for this job.")
 
-    return FileResponse(path=clean_video, media_type="video/mp4")
+    return FileResponse(path=str(clean_video_path), media_type="video/mp4")
 
 
 @app.get("/jobs/{job_id}/download-voice")
@@ -420,11 +430,12 @@ def download_job_voice(job_id: str):
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
     voice_wav = job.get("paths", {}).get("voice_wav", "")
-    if not voice_wav or not Path(voice_wav).exists():
+    voice_wav_path = _host_path(voice_wav)
+    if not voice_wav or not voice_wav_path.exists():
         raise HTTPException(status_code=404, detail="voice.wav not found for this job.")
 
     return FileResponse(
-        path=voice_wav,
+        path=str(voice_wav_path),
         media_type="audio/wav",
         filename=f"{job_id}_voice.wav",
     )

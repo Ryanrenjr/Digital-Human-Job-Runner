@@ -348,7 +348,7 @@ export default function App() {
               voiceProfiles={voiceProfiles.map(profile => ({
                 ...profile,
                 name: profile.id === 'default_voice' ? t.form.systemVoice : profile.name,
-              }))}
+              })).filter(profile => profile.id === 'default_voice' || profile.trainingStatus === 'finished')}
               t={t}
             />
           </div>

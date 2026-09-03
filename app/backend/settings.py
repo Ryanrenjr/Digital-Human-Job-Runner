@@ -76,6 +76,10 @@ EXTRA_CORS_ORIGINS = [
     for origin in os.getenv("DHJR_EXTRA_CORS_ORIGINS", "http://localhost:5173").split(",")
     if origin.strip()
 ]
+EXTRA_CORS_ORIGINS.extend([
+    "http://127.0.0.1:5178",
+    "http://localhost:5178",
+])
 
 FFMPEG_CANDIDATES = [
     c.strip()

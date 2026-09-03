@@ -2,6 +2,7 @@
 set -e
 
 AI_WORKSPACE="${DHJR_WORKSPACE:-$HOME/AI-Workspace}"
+ENGINE_WORKSPACE="${DHJR_ENGINE_WORKSPACE:-$AI_WORKSPACE}"
 
 if [ $# -ne 1 ]; then
     echo "Usage: bash $(basename "$0") JOB_ID" >&2
@@ -73,7 +74,7 @@ echo ""
 echo "===================================="
 echo "Step 2: VoxCPM2 voice generation"
 echo "===================================="
-cd "$AI_WORKSPACE/projects/VoxCPM"
+cd "$ENGINE_WORKSPACE/projects/VoxCPM"
 source "$HOME/miniconda3/etc/profile.d/conda.sh"
 conda activate voxcpm
 python generate_voice_and_timeline_voxcpm2.py
@@ -90,7 +91,7 @@ echo ""
 echo "===================================="
 echo "Step 4: Check voice files"
 echo "===================================="
-OUTPUT_DIR="$AI_WORKSPACE/DigitalHumanOutput"
+OUTPUT_DIR="${DHJR_OUTPUT_DIR:-$ENGINE_WORKSPACE/DigitalHumanOutput}"
 VOICE_WAV="$OUTPUT_DIR/voice.wav"
 VOICE_LS_WAV="$OUTPUT_DIR/voice_for_latentsync.wav"
 
