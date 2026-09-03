@@ -1,4 +1,7 @@
-export const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8018'
+const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL
+export const BASE_URL = configuredBaseUrl && !configuredBaseUrl.includes(':8008')
+  ? configuredBaseUrl
+  : 'http://127.0.0.1:8018'
 
 async function request(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } }

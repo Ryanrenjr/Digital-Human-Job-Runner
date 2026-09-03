@@ -152,6 +152,7 @@ export default function App() {
   // ---- Background handlers ----
   const handleUploadBackground = async (file) => {
     setUploadingBackground(true)
+    setBanner(null)
     try {
       const background = await api.uploadBackground(file)
       await loadBackgrounds()
