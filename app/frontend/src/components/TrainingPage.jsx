@@ -8,6 +8,21 @@ import {
 const AUDIO_MIN_MINUTES = 30
 const AUDIO_TARGET_MINUTES = 60
 const AUDIO_IDEAL_MINUTES = 90
+const SOUND_SOURCE_ACCEPT = [
+  'audio/wav',
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/x-m4a',
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
+  '.wav',
+  '.mp3',
+  '.m4a',
+  '.mp4',
+  '.mov',
+  '.webm',
+].join(',')
 
 function formatDuration(seconds) {
   if (!Number.isFinite(seconds) || seconds <= 0) return '0:00'
@@ -45,6 +60,11 @@ function loadMediaInfo(file) {
     }
     media.src = url
   })
+}
+
+function getSoundSourceType(file) {
+  if (file.type.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(file.name)) return 'video'
+  return 'audio'
 }
 
 function getScoreLevel(score, t) {
@@ -105,7 +125,7 @@ function scoreAudio(audioFiles, totalAudioMinutes, t) {
     }
   }
 
-  const commonFormats = audioFiles.filter(file => /\.(wav|mp3|m4a)$/i.test(file.name)).length
+  const commonFormats = audioFiles.filter(file => /\.(wav|mp3|m4a|mp4|mov|webm)$/i.test(file.name)).length
   const usableClips = audioFiles.filter(file => file.duration >= 10).length
   const longEnoughClips = audioFiles.filter(file => file.duration >= 30).length
   const formatRatio = commonFormats / audioFiles.length
@@ -181,6 +201,7 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
       id: `${file.name}-${file.size}-${file.lastModified}`,
       name: file.name,
       size: file.size,
+      sourceType: getSoundSourceType(file),
       duration: (await loadMediaInfo(file)).duration,
     })))
     setAudioFiles(prev => [...prev, ...enriched])
@@ -203,7 +224,7 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
       mode: totalAudioMinutes >= AUDIO_MIN_MINUTES ? 'lora_finetune' : 'controllable_clone',
       audioMinutes: Number(totalAudioMinutes.toFixed(1)),
       audioScore: audioScore.score,
-      audioFiles: audioFiles.map(file => ({ name: file.name, duration: file.duration, size: file.size })),
+      audioFiles: audioFiles.map(file => ({ name: file.name, duration: file.duration, size: file.size, sourceType: file.sourceType })),
       createdAt: new Date().toISOString(),
     })
     setProfileName('')
@@ -377,7 +398,7 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
             <input
               ref={audioRef}
               type="file"
-              accept="audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,.wav,.mp3,.m4a"
+              accept={SOUND_SOURCE_ACCEPT}
               multiple
               hidden
               onChange={handleAudioChange}
@@ -421,7 +442,13 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
               <div className="audio-file" key={file.id}>
                 <div>
                   <strong>{file.name}</strong>
-                  <span>{formatDuration(file.duration)} · {formatFileSize(file.size)}</span>
+                  <span>
+                    {file.sourceType === 'video' ? t.training.sourceVideoAudio : t.training.sourceAudio}
+                    {' · '}
+                    {formatDuration(file.duration)}
+                    {' · '}
+                    {formatFileSize(file.size)}
+                  </span>
                 </div>
                 <button className="btn btn-ghost btn-xs" type="button" onClick={() => removeAudio(file.id)}>
                   {t.training.remove}
