@@ -177,6 +177,10 @@ function isTrainingStatus(status) {
   return ['queued', 'training_requested', 'training'].includes(status)
 }
 
+function formatPercent(value) {
+  return typeof value === 'number' ? `${Math.max(0, Math.min(100, Math.round(value)))}%` : ''
+}
+
 export function TrainingPage({
   t,
   voiceProfiles,
@@ -413,7 +417,12 @@ export function TrainingPage({
                     </div>
                   ) : null}
                 </div>
-                <em>{t.training.notReadyForTasks}</em>
+                <div className="training-live-status">
+                  {typeof profile.trainingProgressPercent === 'number' ? (
+                    <strong>{formatPercent(profile.trainingProgressPercent)}</strong>
+                  ) : null}
+                  <em>{t.training.notReadyForTasks}</em>
+                </div>
               </div>
             ))}
           </div>
@@ -499,7 +508,12 @@ export function TrainingPage({
                     {profile.dialect ? ` · ${t.voiceDialects?.[profile.dialect] || profile.dialect}` : ''}
                     {profile.audioMinutes ? ` · ${profile.audioMinutes} ${t.training.minutes}` : ''}
                   </span>
-                  {profile.trainingProgressText ? <small>{profile.trainingProgressText}</small> : null}
+                  {profile.trainingProgressText ? (
+                    <small>
+                      {profile.trainingProgressText}
+                      {typeof profile.trainingProgressPercent === 'number' ? ` · ${formatPercent(profile.trainingProgressPercent)}` : ''}
+                    </small>
+                  ) : null}
                   <small>{getProfileHint(profile)}</small>
                 </div>
                 <div className="voice-profile-actions">

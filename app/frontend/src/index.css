@@ -1913,8 +1913,21 @@ body {
   transition: width 240ms ease;
 }
 
-.training-live-card em {
+.training-live-status {
   flex: 0 0 auto;
+  display: grid;
+  justify-items: end;
+  gap: 0.35rem;
+}
+
+.training-live-status strong {
+  color: var(--accent-blue);
+  font-size: 1.3rem;
+  line-height: 1;
+  font-weight: 850;
+}
+
+.training-live-status em {
   padding: 0.28rem 0.6rem;
   border-radius: 999px;
   background: rgba(255, 149, 0, 0.12);
