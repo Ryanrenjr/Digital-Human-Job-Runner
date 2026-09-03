@@ -161,7 +161,14 @@ function QualityItem({ ok, children }) {
   )
 }
 
-export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteVoiceProfile }) {
+export function TrainingPage({
+  t,
+  voiceProfiles,
+  onCreateVoiceProfile,
+  onDeleteVoiceProfile,
+  onUploadAvatarVideo,
+  uploadingAvatarVideo,
+}) {
   const videoRef = useRef(null)
   const audioRef = useRef(null)
   const [video, setVideo] = useState(null)
@@ -172,6 +179,7 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
   const [profileDialect, setProfileDialect] = useState('mandarin')
   const [profileStyle, setProfileStyle] = useState('professional_calm')
   const [trainingNotice, setTrainingNotice] = useState('')
+  const [videoNotice, setVideoNotice] = useState('')
 
   const totalAudioSeconds = audioFiles.reduce((sum, f) => sum + f.duration, 0)
   const totalAudioMinutes = totalAudioSeconds / 60
@@ -193,8 +201,20 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
   const handleVideoChange = async (event) => {
     const file = event.target.files?.[0]
     if (!file) return
+    setVideoNotice('')
     setVideo(file)
     setVideoInfo(await loadMediaInfo(file))
+  }
+
+  const handleSaveVideo = async () => {
+    if (!video || !onUploadAvatarVideo) return
+    const saved = await onUploadAvatarVideo(video)
+    if (saved) {
+      setVideoNotice(t.training.videoSaved)
+      setVideo(null)
+      setVideoInfo({ duration: 0, width: 0, height: 0 })
+      if (videoRef.current) videoRef.current.value = ''
+    }
   }
 
   const handleAudioChange = async (event) => {
@@ -410,6 +430,22 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
               </QualityItem>
             ))}
           </ul>
+
+          <div className="training-action">
+            <div>
+              <strong>{t.training.videoActionTitle}</strong>
+              <span>{t.training.videoActionHint}</span>
+            </div>
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              disabled={!video || uploadingAvatarVideo}
+              onClick={handleSaveVideo}
+            >
+              {uploadingAvatarVideo ? t.training.videoSaving : video ? t.training.saveVideo : t.training.videoUploadFirst}
+            </button>
+          </div>
+          {videoNotice ? <div className="training-notice">{videoNotice}</div> : null}
         </div>
 
         <div className="training-panel">

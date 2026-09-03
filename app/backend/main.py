@@ -1,5 +1,6 @@
 import logging
 import shutil
+import subprocess
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,7 @@ from fastapi.responses import FileResponse
 from background_utils import (
     CUSTOM_DIR,
     THUMBNAILS_DIR,
+    _find_ffmpeg,
     generate_thumbnail,
     get_background_by_id,
     load_backgrounds,
@@ -114,17 +116,60 @@ def get_backgrounds():
 
 @app.post("/backgrounds/upload")
 async def upload_background(file: UploadFile = File(...)):
-    if not file.filename or not file.filename.lower().endswith(".mp4"):
-        raise HTTPException(status_code=400, detail="Only .mp4 files are supported.")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="请选择一个视频文件。")
+
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in {".mp4", ".mov"}:
+        raise HTTPException(status_code=400, detail="请上传常见视频格式。")
 
     bg_id    = make_background_id(file.filename)
     dst_path = CUSTOM_DIR / f"{bg_id}.mp4"
+    tmp_path = CUSTOM_DIR / f"{bg_id}{suffix}"
+    CUSTOM_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
         content = await file.read()
-        dst_path.write_bytes(content)
+        if suffix == ".mp4":
+            dst_path.write_bytes(content)
+        else:
+            tmp_path.write_bytes(content)
+            ffmpeg = _find_ffmpeg()
+            if not ffmpeg:
+                raise HTTPException(status_code=500, detail="缺少视频转换组件，暂时无法保存该视频。")
+            r = subprocess.run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-i",
+                    str(tmp_path),
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "20",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:a",
+                    "aac",
+                    "-movflags",
+                    "+faststart",
+                    str(dst_path),
+                ],
+                capture_output=True,
+                timeout=600,
+            )
+            tmp_path.unlink(missing_ok=True)
+            if r.returncode != 0 or not dst_path.exists():
+                detail = r.stderr.decode("utf-8", errors="replace")[:500]
+                raise HTTPException(status_code=500, detail=f"视频转换失败：{detail}")
+    except HTTPException:
+        tmp_path.unlink(missing_ok=True)
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"保存视频失败：{e}")
 
     bg = {
         "id":             bg_id,

@@ -88,7 +88,7 @@ export function BackgroundPicker({
             <input
               ref={fileRef}
               type="file"
-              accept=".mp4,video/mp4"
+              accept=".mp4,.mov,video/mp4,video/quicktime"
               style={{ display: 'none' }}
               onChange={handleFileChange}
             />

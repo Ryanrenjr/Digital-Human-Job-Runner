@@ -153,11 +153,13 @@ export default function App() {
   const handleUploadBackground = async (file) => {
     setUploadingBackground(true)
     try {
-      await api.uploadBackground(file)
+      const background = await api.uploadBackground(file)
       await loadBackgrounds()
       showBanner('success', t.backgrounds.uploadSuccess)
+      return background
     } catch (e) {
       showBanner('error', `${t.backgrounds.uploadFail}: ${e.detail || e.message}`)
+      return null
     } finally {
       setUploadingBackground(false)
     }
@@ -323,6 +325,8 @@ export default function App() {
           voiceProfiles={voiceProfiles}
           onCreateVoiceProfile={handleCreateVoiceProfile}
           onDeleteVoiceProfile={handleDeleteVoiceProfile}
+          onUploadAvatarVideo={handleUploadBackground}
+          uploadingAvatarVideo={uploadingBackground}
         />
       ) : (
         <main className="main">
