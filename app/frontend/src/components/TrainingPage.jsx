@@ -171,10 +171,13 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
   const [profileLanguage, setProfileLanguage] = useState('zh')
   const [profileDialect, setProfileDialect] = useState('mandarin')
   const [profileStyle, setProfileStyle] = useState('professional_calm')
+  const [trainingNotice, setTrainingNotice] = useState('')
 
   const totalAudioSeconds = audioFiles.reduce((sum, f) => sum + f.duration, 0)
   const totalAudioMinutes = totalAudioSeconds / 60
   const audioProgress = Math.min(100, Math.round((totalAudioMinutes / AUDIO_TARGET_MINUTES) * 100))
+  const remainingTrainingMinutes = Math.max(0, AUDIO_MIN_MINUTES - totalAudioMinutes)
+  const canStartTraining = profileName.trim() && totalAudioMinutes >= AUDIO_MIN_MINUTES
 
   const audioLevel =
     totalAudioMinutes >= AUDIO_IDEAL_MINUTES ? t.training.levelIdeal :
@@ -197,6 +200,7 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
   const handleAudioChange = async (event) => {
     const files = Array.from(event.target.files || [])
     if (!files.length) return
+    setTrainingNotice('')
     const enriched = await Promise.all(files.map(async file => ({
       id: `${file.name}-${file.size}-${file.lastModified}`,
       name: file.name,
@@ -209,12 +213,13 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
   }
 
   const removeAudio = (id) => {
+    setTrainingNotice('')
     setAudioFiles(prev => prev.filter(file => file.id !== id))
   }
 
-  const handleSaveProfile = () => {
+  const createProfileFromCurrentMaterial = () => {
     const name = profileName.trim()
-    if (!name || totalAudioSeconds <= 0) return
+    if (!name || totalAudioSeconds <= 0) return false
     onCreateVoiceProfile({
       id: `voice_${Date.now()}`,
       name,
@@ -229,6 +234,27 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
     })
     setProfileName('')
     setAudioFiles([])
+    return true
+  }
+
+  const handleSaveProfile = () => {
+    createProfileFromCurrentMaterial()
+  }
+
+  const handleStartTraining = () => {
+    if (!canStartTraining) return
+    if (createProfileFromCurrentMaterial()) {
+      setTrainingNotice(t.training.trainingStarted)
+    }
+  }
+
+  const getTrainingButtonText = () => {
+    if (!audioFiles.length) return t.training.trainUploadFirst
+    if (totalAudioMinutes < AUDIO_MIN_MINUTES) {
+      return t.training.trainNeedMore.replace('{minutes}', remainingTrainingMinutes.toFixed(1))
+    }
+    if (!profileName.trim()) return t.training.trainNameFirst
+    return t.training.startTraining
   }
 
   return (
@@ -456,6 +482,22 @@ export function TrainingPage({ t, voiceProfiles, onCreateVoiceProfile, onDeleteV
               </div>
             ))}
           </div>
+
+          <div className="training-action">
+            <div>
+              <strong>{t.training.trainingActionTitle}</strong>
+              <span>{t.training.trainingActionHint}</span>
+            </div>
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              disabled={!canStartTraining}
+              onClick={handleStartTraining}
+            >
+              {getTrainingButtonText()}
+            </button>
+          </div>
+          {trainingNotice ? <div className="training-notice">{trainingNotice}</div> : null}
         </div>
       </section>
 

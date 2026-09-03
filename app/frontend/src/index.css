@@ -2049,6 +2049,42 @@ body {
   font-size: 0.74rem;
 }
 
+.training-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.875rem;
+  margin-top: 0.875rem;
+  padding: 0.875rem;
+  border: 1px solid rgba(0, 122, 255, 0.2);
+  border-radius: var(--ios-radius-sm);
+  background: rgba(0, 122, 255, 0.06);
+}
+
+.training-action div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.training-action strong {
+  color: var(--text-main);
+  font-size: 0.9rem;
+}
+
+.training-action span,
+.training-notice {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.training-notice {
+  margin-top: 0.625rem;
+  color: #007A3D;
+}
+
 .profile-form {
   display: grid;
   gap: 0.75rem;
