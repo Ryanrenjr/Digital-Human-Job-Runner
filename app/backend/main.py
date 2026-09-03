@@ -132,7 +132,7 @@ def _with_voice_progress(profile: dict) -> dict:
         return result
 
     lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    tail = lines[-300:]
+    tail = lines[-2000:]
     progress_text = ""
     progress_percent = None
 
@@ -170,13 +170,27 @@ def _with_voice_progress(profile: dict) -> dict:
             break
 
     for line in reversed(tail):
-        match = re.search(r"\[(\d+)/(\d+)\]", line)
+        match = re.search(r"\[train\]\s+step\s+(\d+)", line)
         if match:
-            current = int(match.group(1))
-            total = max(1, int(match.group(2)))
-            progress_text = f"正在识别声音文字：{current}/{total} 段"
-            progress_percent = min(57, 35 + round((current / total) * 22))
+            step = int(match.group(1))
+            total_steps = 300
+            progress_text = f"正在训练声音模型：第 {step}/{total_steps} 步"
+            progress_percent = min(98, 70 + round((step / total_steps) * 28))
             break
+        if line.startswith("[Audio]"):
+            progress_text = "正在训练声音模型：生成试听样本"
+            progress_percent = max(progress_percent or 0, 70)
+            break
+
+    if progress_percent is None or progress_percent < 58:
+        for line in reversed(tail):
+            match = re.search(r"\[(\d+)/(\d+)\]", line)
+            if match:
+                current = int(match.group(1))
+                total = max(1, int(match.group(2)))
+                progress_text = f"正在识别声音文字：{current}/{total} 段"
+                progress_percent = min(57, 35 + round((current / total) * 22))
+                break
 
     result["trainingProgressText"] = progress_text
     result["trainingProgressPercent"] = progress_percent
