@@ -72,7 +72,7 @@
 ### 已完成功能
 
 - **Frontend** — React 18 + Vite 5，实时任务状态轮询
-- **Backend API** — FastAPI，127.0.0.1:8008
+- **Backend API** — FastAPI，127.0.0.1:8018
 - **JSON job storage** — 文件型任务存储，无数据库
 - **Background selection** — 4 个背景（boss_01 ~ boss_04）
 - **CleanVideo generation** — VoxCPM2 → LatentSync 六步流水线

@@ -8,7 +8,7 @@ Type=simple
 Environment=DHJR_WORKSPACE=%h/AI-Workspace
 WorkingDirectory=%h/AI-Workspace/app/backend
 ExecStartPre=/bin/mkdir -p %h/AI-Workspace/logs
-ExecStart=%h/miniconda3/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8008
+ExecStart=%h/miniconda3/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8018
 Restart=always
 RestartSec=3
 StandardOutput=append:%h/AI-Workspace/logs/backend.log
