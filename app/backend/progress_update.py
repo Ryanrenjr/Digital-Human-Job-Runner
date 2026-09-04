@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Write a live pipeline progress update for one job."""
 
+import os
 import sys
 
+from job_states import ACTIVE_STATUSES
 from job_store import load_job, save_job
 
 
@@ -29,7 +31,11 @@ def main() -> None:
     if total is not None:
         progress["total_windows"] = total
 
-    save_job(job)
+    run_id = os.getenv("DHJR_RUN_ID", "").strip()
+    if run_id:
+        save_job(job, expected_run_id=run_id, allowed_statuses=ACTIVE_STATUSES)
+    else:
+        save_job(job)
 
 
 if __name__ == "__main__":

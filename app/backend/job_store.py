@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from database import delete_job as db_delete_job
-from database import get_job, list_jobs as db_list_jobs, upsert_job
+from database import get_job, list_jobs as db_list_jobs, update_job_if_run_matches, upsert_job
 from job_states import ACTIVE_STATUSES
 from settings import DEFAULT_VOICE_ID, JOBS_DIR, WINDOWS_OUTPUT_DIR
 
@@ -58,10 +58,21 @@ def load_job(job_id: str) -> Optional[dict]:
     return get_job(job_id)
 
 
-def save_job(job: dict) -> None:
+def save_job(
+    job: dict,
+    expected_run_id: str | None = None,
+    allowed_statuses: set[str] | frozenset[str] | None = None,
+) -> bool:
     job["updated_at"] = _now_iso()
+    if expected_run_id is not None:
+        updated = update_job_if_run_matches(job, expected_run_id, allowed_statuses)
+        if not updated:
+            return False
+        _write_json_mirror(job)
+        return True
     upsert_job(job)
     _write_json_mirror(job)
+    return True
 
 
 def list_jobs() -> list:
@@ -88,6 +99,7 @@ def _build_paths(job_id: str) -> dict:
         "output_dir": str(job_dir / "output"),
         "workspace_dir": str(job_dir / "workspace"),
         "work_dir": str(job_dir / "work"),
+        "run_metadata": str(job_dir / "run.json"),
         "avatar_video": str(job_dir / "input/avatar.mp4"),
         "background_snapshot": str(job_dir / "input/avatar.mp4"),
         "log_dir": str(job_dir / "logs"),
@@ -143,7 +155,7 @@ def _snapshot_file(source: str | Path, destination: Path) -> None:
         shutil.copy2(src, destination)
 
 
-def create_job(req: JobCreateRequest) -> dict:
+def create_job(req: JobCreateRequest, voice_data: dict | None = None) -> dict:
     # Microseconds prevent collisions when the UI submits twice in one second.
     job_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_video_job"
     job_dir = JOBS_DIR / job_id
@@ -151,6 +163,7 @@ def create_job(req: JobCreateRequest) -> dict:
     for subdir in ("input", "output", "logs"):
         (job_dir / subdir).mkdir(parents=True, exist_ok=True)
 
+    voice_data = voice_data or {}
     job = {
         "job_id": job_id,
         "status": "pending",
@@ -164,11 +177,11 @@ def create_job(req: JobCreateRequest) -> dict:
         "voice_dialect": req.voice_dialect if req.voice_language == "zh" else "",
         "voice_mode": req.voice_mode or "basic_tts",
         "voice_style": req.voice_style or "professional_calm",
-        "voice_checkpoint_path": req.voice_checkpoint_path,
-        "voice_reference_wav_path": req.voice_reference_wav_path,
-        "voice_reference_text": req.voice_reference_text or "",
-        "voice_revision": req.voice_revision,
-        "voice_training_status": req.voice_training_status,
+        "voice_checkpoint_path": voice_data.get("checkpoint_path"),
+        "voice_reference_wav_path": voice_data.get("reference_wav_path"),
+        "voice_reference_text": voice_data.get("reference_text", ""),
+        "voice_revision": voice_data.get("revision"),
+        "voice_training_status": voice_data.get("training_status"),
         "output_type": req.output_type,
         "shutdown_after_done": req.shutdown_after_done,
         "created_at": _now_iso(),

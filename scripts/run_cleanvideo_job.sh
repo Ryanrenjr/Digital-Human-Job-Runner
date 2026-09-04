@@ -13,6 +13,8 @@ fi
 JOB_ID="$1"
 JOB_DIR="$AI_WORKSPACE/jobs/$JOB_ID"
 JOB_STATE_GET="$AI_WORKSPACE/app/backend/job_state_get.py"
+RUN_ID="${DHJR_RUN_ID:-}"
+RUN_METADATA="$JOB_DIR/run.json"
 PROGRESS_HELPER="$AI_WORKSPACE/app/backend/progress_update.py"
 LOG_DIR="$JOB_DIR/logs"
 LOG_FILE="$LOG_DIR/run.log"
@@ -26,6 +28,11 @@ export DHJR_AVATAR_VIDEO="${DHJR_AVATAR_VIDEO:-$JOB_DIR/input/avatar.mp4}"
 # --- Ensure log directory exists before tee ---
 mkdir -p "$LOG_DIR"
 mkdir -p "$OUTPUT_DIR" "$WORK_DIR"
+
+# Register the actual WSL process group so cancellation can target the GPU work.
+WSL_PGID=$(ps -o pgid= -p $$ | tr -d ' ')
+printf '{"run_id":"%s","wsl_pid":%s,"wsl_pgid":%s}\n' "$RUN_ID" "$$" "$WSL_PGID" > "$RUN_METADATA.tmp"
+mv -f "$RUN_METADATA.tmp" "$RUN_METADATA"
 
 # --- Redirect all output to log + terminal ---
 exec > >(tee -a "$LOG_FILE") 2>&1

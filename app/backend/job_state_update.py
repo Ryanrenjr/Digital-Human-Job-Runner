@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Update a job state from a shell pipeline without bypassing SQLite."""
 
+import os
 import sys
 
+from job_states import ACTIVE_STATUSES
 from job_store import load_job, save_job
 
 
@@ -23,7 +25,11 @@ def main() -> None:
     progress["stage"] = status
     progress["percent"] = 100 if status == "finished" else progress.get("percent", 0)
     progress["message"] = message
-    save_job(job)
+    run_id = os.getenv("DHJR_RUN_ID", "").strip()
+    if run_id:
+        save_job(job, expected_run_id=run_id, allowed_statuses=ACTIVE_STATUSES)
+    else:
+        save_job(job)
 
 
 if __name__ == "__main__":

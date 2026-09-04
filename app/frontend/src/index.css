@@ -2504,6 +2504,7 @@ body {
 .readiness-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .readiness-heading h2 { margin: 0; font-size: 18px; }
 .readiness-heading p { margin: 5px 0 0; color: #747982; font-size: 13px; }
+.readiness-actions { display: flex; align-items: center; gap: 8px; }
 .readiness-overall, .readiness-fix { border-radius: 999px; padding: 5px 9px; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .readiness-overall.is-ready { color: #087443; background: #e6f7ed; }
 .readiness-overall.is-missing { color: #a45b00; background: #fff1dc; }

@@ -3,6 +3,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -15,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 from job_store import create_job, delete_job, list_jobs, load_job, save_job
 from database import claim_job
 from runner import _build_wsl_command, _to_wsl_path
+import runner
 from schemas import JobCreateRequest
 
 
@@ -92,6 +94,45 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(snapshot.read_bytes(), b"background-data")
         background.unlink()
         self.assertTrue(snapshot.exists())
+        delete_job(job["job_id"])
+
+    def test_cancelled_run_rejects_stale_runner_write(self):
+        job = create_job(self.make_request())
+        claimed = claim_job(job["job_id"], "run-cancel-race", "2026-09-04T00:00:00")
+        stale = claimed["job"]
+
+        cancelled = load_job(job["job_id"])
+        cancelled["status"] = "cancelled"
+        save_job(cancelled)
+
+        stale["status"] = "running"
+        self.assertFalse(save_job(
+            stale,
+            expected_run_id="run-cancel-race",
+            allowed_statuses={"starting"},
+        ))
+        self.assertEqual(load_job(job["job_id"])["status"], "cancelled")
+        delete_job(job["job_id"])
+
+    def test_popen_failure_does_not_leave_starting_job(self):
+        job = create_job(self.make_request())
+        script = TEST_ROOT / "run_voice_only_job.sh"
+        script.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+
+        with patch.object(runner, "RUN_VOICE_SCRIPT", str(script)), patch.object(
+            runner.subprocess, "Popen", side_effect=OSError("wsl.exe missing")
+        ):
+            with self.assertRaises(RuntimeError):
+                runner.start_job(job["job_id"])
+
+        self.assertEqual(load_job(job["job_id"])["status"], "failed")
+        delete_job(job["job_id"])
+
+    def test_prepare_only_accepts_starting_status(self):
+        job = create_job(self.make_request())
+        from prepare_job import validate_job
+        with self.assertRaises(ValueError):
+            validate_job(job, job["job_id"])
         delete_job(job["job_id"])
 
 

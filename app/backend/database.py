@@ -88,6 +88,34 @@ def upsert_job(job: dict) -> None:
         )
 
 
+def update_job_if_run_matches(
+    job: dict,
+    expected_run_id: str,
+    allowed_statuses: set[str] | frozenset[str] | None = None,
+) -> bool:
+    """Conditionally persist a run update so a cancelled run cannot revive itself."""
+    init_db()
+    now = job.get("updated_at") or job.get("finished_at") or job.get("created_at") or ""
+    payload = json.dumps(job, ensure_ascii=False, separators=(",", ":"))
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT status, payload FROM jobs WHERE job_id = ?", (job["job_id"],)
+        ).fetchone()
+        if row is None:
+            return False
+        current = json.loads(row["payload"])
+        if current.get("run_id") != expected_run_id:
+            return False
+        if allowed_statuses is not None and row["status"] not in allowed_statuses:
+            return False
+        conn.execute(
+            "UPDATE jobs SET status = ?, updated_at = ?, payload = ? WHERE job_id = ?",
+            (job.get("status", row["status"]), now, payload, job["job_id"]),
+        )
+    return True
+
+
 def claim_job(job_id: str, run_id: str, started_at: str) -> dict:
     """Atomically reserve one job when no other job is active."""
     init_db()

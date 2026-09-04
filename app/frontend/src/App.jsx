@@ -58,6 +58,7 @@ export default function App() {
   )
   const [voiceProfiles,       setVoiceProfiles]       = useState(loadVoiceProfiles)
   const [readiness,            setReadiness]           = useState(null)
+  const [readinessLoading,     setReadinessLoading]    = useState(false)
 
   const t           = translations[language]
   const selectedJob = jobs.find(j => j.job_id === selectedJobId) || null
@@ -146,9 +147,11 @@ export default function App() {
     }
   }, [])
 
-  const loadReadiness = useCallback(async () => {
-    try { setReadiness(await api.getSystemReadiness()) }
+  const loadReadiness = useCallback(async (force = false) => {
+    setReadinessLoading(true)
+    try { setReadiness(await api.getSystemReadiness(force)) }
     catch (e) { console.warn('readiness:', e) }
+    finally { setReadinessLoading(false) }
   }, [])
 
   const loadJobLog = useCallback(async (jobId) => {
@@ -401,7 +404,7 @@ export default function App() {
           </div>
 
           <div className="right-panel">
-            <SystemReadinessPanel readiness={readiness} />
+            <SystemReadinessPanel readiness={readiness} loading={readinessLoading} onRefresh={() => loadReadiness(true)} />
             <QueueControlPanel
               status={queueStatus}
               loading={queueLoading}

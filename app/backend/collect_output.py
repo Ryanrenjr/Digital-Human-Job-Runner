@@ -5,11 +5,13 @@ Usage: python collect_output.py JOB_ID
 """
 
 import shutil
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
 from settings import JOBS_DIR, WINDOWS_OUTPUT_DIR
 from job_store import load_job, save_job
+from job_states import ACTIVE_STATUSES
 
 
 def now_iso() -> str:
@@ -25,7 +27,11 @@ def fail_job(job: dict | None, msg: str) -> None:
             job.setdefault("progress", {})
             job["progress"]["stage"] = "failed"
             job["progress"]["message"] = msg
-            save_job(job)
+            run_id = os.getenv("DHJR_RUN_ID", "").strip()
+            if run_id:
+                save_job(job, expected_run_id=run_id, allowed_statuses=ACTIVE_STATUSES)
+            else:
+                save_job(job)
             print("[INFO] SQLite job state updated: status=failed")
         except Exception as e:
             print(f"[WARN] Could not update SQLite job state after failure: {e}", file=sys.stderr)
@@ -143,7 +149,10 @@ def main() -> None:
         paths["voice_for_latentsync_wav"] = str(job_output_dir / "voice_for_latentsync.wav")
         paths["windows_desktop_output"] = str(windows_dst)
 
-        save_job(job)
+        run_id = os.getenv("DHJR_RUN_ID", "").strip()
+        saved = save_job(job, expected_run_id=run_id, allowed_statuses=ACTIVE_STATUSES) if run_id else save_job(job)
+        if not saved:
+            fail_job(None, "任务已被取消，拒绝写入完成状态。")
     except Exception as e:
         fail_job(job, f"Failed to update SQLite job state: {e}")
 

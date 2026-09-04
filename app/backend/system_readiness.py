@@ -6,8 +6,10 @@ import os
 import shlex
 import shutil
 import subprocess
+import threading
+import time
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from settings import (
     AI_WORKSPACE,
@@ -19,6 +21,10 @@ from settings import (
     MIN_FREE_DISK_BYTES,
     VOXCPM_ENV,
 )
+
+_CACHE_TTL_SECONDS = 45
+_CACHE_LOCK = threading.Lock()
+_CACHE: tuple[float, dict] | None = None
 
 
 def _command_exists(command: str) -> bool:
@@ -37,20 +43,43 @@ def _runs(command: list[str], timeout: int = 8) -> bool:
         return False
 
 
+def _wsl_engine_root() -> PurePosixPath | None:
+    configured = os.getenv("DHJR_ENGINE_WORKSPACE", "").strip()
+    if not configured:
+        return None
+    if len(configured) >= 3 and configured[1] == ":":
+        return PurePosixPath(f"/mnt/{configured[0].lower()}/{configured[3:].replace(chr(92), '/')}")
+    return PurePosixPath(configured)
+
+
 def _runtime_path_exists(path: Path, kind: str = "e") -> bool:
     if os.name != "nt":
         return path.exists()
-    configured = os.getenv("DHJR_ENGINE_WORKSPACE", "").strip()
-    if configured:
-        root = configured
-        if len(root) >= 3 and root[1] == ":":
-            root = f"/mnt/{root[0].lower()}/{root[3:].replace(chr(92), '/')}"
-        target = str(Path(root) / path.relative_to(ENGINE_WORKSPACE))
-    else:
-        # Avoid shell-quoting the wildcard: WSL expands it to the distro user.
-        target = f"/home/*/AI-Workspace/{path.relative_to(ENGINE_WORKSPACE).as_posix()}"
+    relative = PurePosixPath(path.relative_to(ENGINE_WORKSPACE).as_posix())
+    root = _wsl_engine_root()
+    # The wildcard is intentionally left unquoted so WSL expands the distro user.
+    target = str(root / relative) if root else f"/home/*/AI-Workspace/{relative}"
     target_arg = target if target.startswith("/home/*/") else shlex.quote(target)
     return _runs(["wsl", "bash", "-lc", f"test -{kind} {target_arg}"])
+
+
+def _wsl_command_exists(command: str) -> bool:
+    return _runs(["wsl", "bash", "-lc", f"command -v {shlex.quote(command)} >/dev/null"])
+
+
+def _wsl_conda_command_exists(environment: str, command: str) -> bool:
+    if CONDA_EXE == "micromamba":
+        call = [CONDA_EXE, "run", "-n", environment, command, "-version"]
+        script = " ".join(shlex.quote(item) for item in call)
+    else:
+        call = [CONDA_EXE, "run", "--no-capture-output", "-n", environment, command, "-version"]
+        script = (
+            "source /home/*/miniconda3/etc/profile.d/conda.sh 2>/dev/null "
+            "|| source /home/*/miniforge3/etc/profile.d/conda.sh 2>/dev/null "
+            "|| source /home/*/mambaforge/etc/profile.d/conda.sh 2>/dev/null; "
+            + " ".join(shlex.quote(item) for item in call)
+        )
+    return _runs(["wsl", "bash", "-lc", script], timeout=20)
 
 
 def _conda_env_exists(name: str, conda_ok: bool) -> bool:
@@ -79,7 +108,18 @@ def _check(key: str, label: str, ok: bool, message: str, fix: str, required: boo
     }
 
 
-def get_readiness() -> dict:
+def get_readiness(force: bool = False) -> dict:
+    return _get_readiness(force=force)
+
+
+def _get_readiness(force: bool = False) -> dict:
+    global _CACHE
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        if not force and _CACHE and now - _CACHE[0] < _CACHE_TTL_SECONDS:
+            import copy
+            return copy.deepcopy(_CACHE[1])
+
     checks = []
     checks.append(_check(
         "gpu", "GPU / CUDA",
@@ -93,12 +133,14 @@ def get_readiness() -> dict:
     ))
     checks.append(_check(
         "ffmpeg", "FFmpeg",
-        any(_command_exists(item) for item in FFMPEG_CANDIDATES),
+        any(_command_exists(item) for item in FFMPEG_CANDIDATES)
+        or (os.name == "nt" and (_wsl_conda_command_exists(LATENTSYNC_ENV, "ffmpeg") or _wsl_command_exists("ffmpeg"))),
         "媒体处理工具可用", "安装 FFmpeg，并将 ffmpeg 加入 PATH 或配置 DHJR_FFMPEG_CANDIDATES。",
     ))
     checks.append(_check(
         "ffprobe", "FFprobe",
-        any(_command_exists(item) for item in FFPROBE_CANDIDATES),
+        any(_command_exists(item) for item in FFPROBE_CANDIDATES)
+        or (os.name == "nt" and (_wsl_conda_command_exists(LATENTSYNC_ENV, "ffprobe") or _wsl_command_exists("ffprobe"))),
         "媒体检测工具可用", "安装 FFmpeg（其中包含 ffprobe），或配置 DHJR_FFPROBE_CANDIDATES。",
     ))
     conda_ok = (
@@ -152,9 +194,12 @@ def get_readiness() -> dict:
     ))
 
     required_ok = all(item["status"] == "ready" for item in checks if item["required"])
-    return {
+    result = {
         "ready": required_ok,
         "status": "ready" if required_ok else "missing",
         "checks": checks,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
+    with _CACHE_LOCK:
+        _CACHE = (time.monotonic(), result)
+    return result

@@ -6,6 +6,7 @@ Usage: python prepare_job.py JOB_ID
 
 import shutil
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -57,7 +58,15 @@ def fail_job(job: dict | None, msg: str) -> None:
             job.setdefault("progress", {})
             job["progress"]["stage"] = "failed"
             job["progress"]["message"] = msg
-            save_job(job)
+            run_id = os.getenv("DHJR_RUN_ID")
+            saved = save_job(
+                job,
+                expected_run_id=run_id,
+                allowed_statuses=ACTIVE_STATUSES,
+            ) if run_id else save_job(job)
+            if not saved:
+                print("[INFO] Job was changed by another lifecycle action; keeping that state.")
+                sys.exit(1)
             print("[INFO] SQLite job state updated: status=failed")
         except Exception as e:
             print(f"[WARN] Could not update SQLite job state after failure: {e}", file=sys.stderr)
@@ -81,9 +90,9 @@ def validate_job(job: dict, job_id: str) -> None:
         )
 
     status = job.get("status", "")
-    if status in ((ACTIVE_STATUSES - {"starting"}) | {"finished"}):
+    if status != "starting":
         raise ValueError(
-            f"Job status is '{status}'. Only pending/failed/cancelled/starting jobs can be prepared."
+            f"Job status is '{status}'. Only a claimed starting job can be prepared."
         )
 
     if job["output_type"] not in ("clean_video", "voice_only"):
@@ -255,6 +264,9 @@ def main() -> None:
     job = load_job(job_id)
     if job is None:
         fail_job(None, f"SQLite 中找不到任务：{job_id}")
+    run_id = os.getenv("DHJR_RUN_ID", "").strip()
+    if not run_id or job.get("run_id") != run_id:
+        fail_job(job, "任务启动租约已失效，已停止准备。")
 
     # --- Validate ---
     print(f"[INFO] Validating job fields...")
@@ -338,7 +350,8 @@ def main() -> None:
         job["progress"]["percent"] = 0
         job["progress"]["message"] = "Job prepared successfully"
         job["paths"] = build_paths(job_id, output_type)
-        save_job(job)
+        if not save_job(job, expected_run_id=run_id, allowed_statuses={"starting"}):
+            fail_job(job, "任务在准备期间已被取消，已停止启动。")
     except Exception as e:
         fail_job(job, f"Failed to update SQLite job state: {e}")
 

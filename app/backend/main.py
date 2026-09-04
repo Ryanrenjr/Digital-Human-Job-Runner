@@ -26,7 +26,13 @@ from background_utils import (
 from job_store import create_job, delete_job, list_jobs, load_job, migrate_legacy_jobs, save_job
 from progress_utils import get_cleanvideo_progress
 from queue_runner import queue_runner
-from runner import JobStartConflict, is_job_process_running, kill_job_process, start_job
+from runner import (
+    JobStartConflict,
+    _trained_voice_ready,
+    is_job_process_running,
+    kill_job_process,
+    start_job,
+)
 from job_states import ACTIVE_STATUSES
 from schemas import (
     HealthResponse,
@@ -159,8 +165,8 @@ app.add_middleware(
 
 
 @app.get("/system/readiness")
-def system_readiness():
-    return get_readiness()
+def system_readiness(force: bool = False):
+    return get_readiness(force=force)
 
 
 def _with_live_progress(job: dict) -> dict:
@@ -664,12 +670,16 @@ def create_job_endpoint(req: JobCreateRequest):
         if voice_profile:
             if voice_profile.get("trainingStatus") != "finished":
                 raise HTTPException(status_code=409, detail="这个声音还在训练中，完成后才能创建任务。")
-            req.voice_checkpoint_path = voice_profile.get("checkpointPath")
-            req.voice_reference_wav_path = voice_profile.get("referenceWavPath")
-            req.voice_reference_text = voice_profile.get("referenceText", "")
-            req.voice_training_status = voice_profile.get("trainingStatus")
-            req.voice_revision = voice_profile.get("revision")
-        job = create_job(req)
+        voice_data = None
+        if voice_profile:
+            voice_data = {
+                "checkpoint_path": voice_profile.get("checkpointPath"),
+                "reference_wav_path": voice_profile.get("referenceWavPath"),
+                "reference_text": voice_profile.get("referenceText", ""),
+                "training_status": voice_profile.get("trainingStatus"),
+                "revision": voice_profile.get("revision"),
+            }
+        job = create_job(req, voice_data=voice_data)
     except HTTPException:
         raise
     except Exception as e:
@@ -801,7 +811,17 @@ def cancel_job(job_id: str):
     job.setdefault("progress", {})
     job["progress"]["stage"]   = "cancelled"
     job["progress"]["message"] = "Cancelled by user."
-    save_job(job)
+    run_id = job.get("run_id")
+    saved = save_job(
+        job,
+        expected_run_id=run_id,
+        allowed_statuses=ACTIVE_STATUSES,
+    ) if run_id else save_job(job)
+    if not saved:
+        latest = load_job(job_id)
+        if latest and latest.get("status") == "cancelled":
+            return latest
+        raise HTTPException(status_code=409, detail="任务状态刚刚发生变化，请刷新后重试。")
     logger.info("Cancelled job %s (was: %s)", job_id, status)
     return job
 
@@ -819,8 +839,16 @@ def reset_job(job_id: str):
         raise HTTPException(status_code=409, detail="任务正在运行，请先取消后再重置。")
     if status == "pending":
         return job
+    if str(job.get("voice_id", "")).startswith("voice_") and not _trained_voice_ready(job):
+        raise HTTPException(
+            status_code=409,
+            detail="这个任务使用的自定义声音已经不可用，请重新选择声音并创建任务。",
+        )
 
     job["status"]        = "pending"
+    job.pop("run_id", None)
+    job.pop("launcher_pid", None)
+    job.pop("process_group_id", None)
     job["started_at"]    = None
     job["finished_at"]   = None
     job["error_message"] = None

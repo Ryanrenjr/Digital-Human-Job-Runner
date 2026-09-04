@@ -1,4 +1,4 @@
-export function SystemReadinessPanel({ readiness }) {
+export function SystemReadinessPanel({ readiness, onRefresh, loading }) {
   if (!readiness) return null
 
   return (
@@ -8,9 +8,14 @@ export function SystemReadinessPanel({ readiness }) {
           <h2>运行环境</h2>
           <p>{readiness.ready ? '可以开始处理任务' : '有必需组件未就绪'}</p>
         </div>
-        <span className={`readiness-overall ${readiness.ready ? 'is-ready' : 'is-missing'}`}>
-          {readiness.ready ? '就绪' : '需要处理'}
-        </span>
+        <div className="readiness-actions">
+          <button className="btn btn-ghost btn-xs" onClick={onRefresh} disabled={loading} type="button">
+            {loading ? '检测中' : '重新检测'}
+          </button>
+          <span className={`readiness-overall ${readiness.ready ? 'is-ready' : 'is-missing'}`}>
+            {readiness.ready ? '就绪' : '需要处理'}
+          </span>
+        </div>
       </div>
       <div className="readiness-grid">
         {readiness.checks.map(check => (
