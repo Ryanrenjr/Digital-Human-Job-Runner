@@ -15,6 +15,8 @@ FPS=25
 CORE_SECONDS=6
 PAD_SECONDS=1
 AUDIO_OFFSET="${AUDIO_OFFSET:-0}"
+LATENTSYNC_STEPS="${DHJR_LATENTSYNC_STEPS:-20}"
+LATENTSYNC_GUIDANCE="${DHJR_LATENTSYNC_GUIDANCE:-1.5}"
 JOB_ID="${DHJR_JOB_ID:-}"
 PROGRESS_HELPER="${DHJR_PROGRESS_HELPER:-}"
 
@@ -29,7 +31,8 @@ update_progress() {
 }
 
 WORK_DIR="data/overlap_full_work"
-INPUT_AUDIO_FULL="$HOME/AI-Workspace/DigitalHumanOutput/voice_for_latentsync.wav"
+INPUT_AUDIO_FULL="${DHJR_INPUT_AUDIO_FULL:-$HOME/AI-Workspace/DigitalHumanOutput/voice_for_latentsync.wav}"
+MUX_AUDIO_FULL="${DHJR_MUX_AUDIO_FULL:-$INPUT_AUDIO_FULL}"
 INPUT_AUDIO="data/input/voice_for_overlap_full.wav"
 RAW_BOSS_VIDEO="data/input/boss_default.mp4"
 FULL_LOOP_VIDEO="$WORK_DIR/boss_full_loop_fast.mp4"
@@ -213,8 +216,8 @@ while IFS=',' read -r index core_start core_end core_len padded_start padded_len
   python -m scripts.inference \
     --unet_config_path "configs/unet/stage2_512.yaml" \
     --inference_ckpt_path "checkpoints/latentsync_unet.pt" \
-    --inference_steps 15 \
-    --guidance_scale 1.5 \
+    --inference_steps "$LATENTSYNC_STEPS" \
+    --guidance_scale "$LATENTSYNC_GUIDANCE" \
     --enable_deepcache \
     --video_path "$video_chunk" \
     --audio_path "$audio_chunk" \
@@ -258,7 +261,7 @@ echo "Attaching original full audio..."
 
 ffmpeg -y -nostdin \
   -i "$WORK_DIR/video_only.mp4" \
-  -i "$INPUT_AUDIO" \
+  -i "$MUX_AUDIO_FULL" \
   -t "$AUDIO_DUR" \
   -map 0:v:0 \
   -map 1:a:0 \

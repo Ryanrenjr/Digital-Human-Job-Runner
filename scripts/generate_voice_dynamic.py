@@ -31,6 +31,8 @@ PROGRESS_HELPER = os.environ.get("DHJR_PROGRESS_HELPER", "")
 PAUSE_SECONDS = 0.06
 MAX_SEGMENT_CHARS = 54
 MAX_SEGMENT_SECONDS = 12.0
+VOICE_SAMPLE_RATE = 48000
+LATENT_SAMPLE_RATE = 16000
 
 
 def normalize_script(text: str) -> str:
@@ -143,7 +145,7 @@ def concat_audio(segment_paths: list[Path], output_path: Path, pause_seconds: fl
     concat_list = OUTPUT_DIR / "voxcpm_concat_list.txt"
     pause_path = OUTPUT_DIR / "pause.wav"
     subprocess.run([
-        "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono",
+        "ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=r={VOICE_SAMPLE_RATE}:cl=mono",
         "-t", str(pause_seconds), str(pause_path),
     ], check=True)
     lines = []
@@ -154,15 +156,15 @@ def concat_audio(segment_paths: list[Path], output_path: Path, pause_seconds: fl
     concat_list.write_text("".join(lines), encoding="utf-8")
     subprocess.run([
         "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list),
-        "-ar", "16000", "-ac", "1", str(output_path),
+        "-ar", str(VOICE_SAMPLE_RATE), "-ac", "1", str(output_path),
     ], check=True)
 
 
 def clean_generated_audio(input_path: Path, output_path: Path):
     subprocess.run([
         "ffmpeg", "-y", "-i", str(input_path),
-        "-af", "highpass=f=70,lowpass=f=7600,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
-        "-ac", "1", "-ar", "16000", str(output_path),
+        "-af", "highpass=f=70,lowpass=f=14000,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
+        "-ac", "1", "-ar", str(VOICE_SAMPLE_RATE), str(output_path),
     ], check=True)
 
 
@@ -189,7 +191,7 @@ def fit_audio_duration(path: Path, target_seconds: float) -> float:
     subprocess.run([
         "ffmpeg", "-y", "-i", str(path),
         "-af", f"{atempo_chain(speed)},loudnorm=I=-16:TP=-1.5:LRA=11",
-        "-ac", "1", "-ar", "16000", str(tmp),
+        "-ac", "1", "-ar", str(VOICE_SAMPLE_RATE), str(tmp),
     ], check=True)
     tmp.replace(path)
     return get_duration(path)
@@ -259,6 +261,7 @@ def main():
             text=text,
             prompt_wav_path=str(ref_wav),
             prompt_text=ref_text,
+            reference_wav_path=str(ref_wav),
             cfg_value=2.5,
             inference_timesteps=25,
             denoise=False,
@@ -317,7 +320,7 @@ def main():
     subprocess.run([
         "ffmpeg", "-y", "-i", str(voice_path),
         "-af", "highpass=f=70,lowpass=f=7600,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
-        "-ac", "1", "-ar", "16000", str(voice_latent),
+        "-ac", "1", "-ar", str(LATENT_SAMPLE_RATE), str(voice_latent),
     ], check=True)
 
     print("\nDone.")

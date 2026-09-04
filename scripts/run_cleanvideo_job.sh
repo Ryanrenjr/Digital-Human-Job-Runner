@@ -173,7 +173,10 @@ echo "Step 5: LatentSync — generate CleanVideo"
 echo "===================================="
 update_progress latentsync 40 "正在准备视频处理"
 cd "$ENGINE_WORKSPACE/scripts"
-DHJR_JOB_ID="$JOB_ID" DHJR_PROGRESS_HELPER="$PROGRESS_HELPER" AUDIO_OFFSET=0 bash run_02_latentsync_overlap.sh
+DHJR_JOB_ID="$JOB_ID" DHJR_PROGRESS_HELPER="$PROGRESS_HELPER" \
+DHJR_INPUT_AUDIO_FULL="$OUTPUT_DIR/voice_for_latentsync.wav" \
+DHJR_MUX_AUDIO_FULL="$OUTPUT_DIR/voice.wav" \
+AUDIO_OFFSET=0 bash run_02_latentsync_overlap.sh
 
 # ============================================================
 echo ""
