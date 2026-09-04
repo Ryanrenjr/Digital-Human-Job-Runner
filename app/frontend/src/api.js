@@ -34,6 +34,7 @@ export const getVoiceUrl   = (jobId)   => `${BASE_URL}/jobs/${jobId}/download-vo
 export const getVoices = () => request('GET', '/voices')
 export const getVoiceLog = (voiceId) => request('GET', `/voices/${voiceId}/log`)
 export const retryVoiceTraining = (voiceId) => request('POST', `/voices/${voiceId}/retry`)
+export const deleteVoice = (voiceId) => request('DELETE', `/voices/${voiceId}`)
 export const trainVoice = async ({ name, language, dialect, style, audioMinutes, audioScore, files }) => {
   const form = new FormData()
   form.append('name', name)

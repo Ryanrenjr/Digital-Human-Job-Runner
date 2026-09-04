@@ -18,27 +18,15 @@ const DEFAULT_VOICE_PROFILE = {
   mode: 'basic_tts',
 }
 
-const BUILTIN_LIERWANG_VOICE_PROFILE = {
-  id: 'boss_voxcpm2_lora',
-  name: 'Li Er Wang',
-  builtIn: true,
-  language: 'zh',
-  dialect: 'mandarin',
-  style: 'friendly_natural',
-  mode: 'lora_finetune',
-  trainingStatus: 'finished',
-  checkpointPath: '/home/ryanrenjr/voxlora/checkpoints/boss_lora_fast/step_0000300',
-}
-
 function loadVoiceProfiles() {
   try {
     const saved = JSON.parse(localStorage.getItem('dhjr_voice_profiles') || '[]')
     const custom = Array.isArray(saved)
-      ? saved.filter(p => p?.id && p.id !== 'default_voice' && p.id !== 'boss_voxcpm2_lora')
+      ? saved.filter(p => p?.id && p.id !== 'default_voice')
       : []
-    return [DEFAULT_VOICE_PROFILE, BUILTIN_LIERWANG_VOICE_PROFILE, ...custom]
+    return [DEFAULT_VOICE_PROFILE, ...custom]
   } catch {
-    return [DEFAULT_VOICE_PROFILE, BUILTIN_LIERWANG_VOICE_PROFILE]
+    return [DEFAULT_VOICE_PROFILE]
   }
 }
 
@@ -90,7 +78,7 @@ export default function App() {
     setVoiceProfiles(profiles)
     localStorage.setItem(
       'dhjr_voice_profiles',
-      JSON.stringify(profiles.filter(p => !p.builtIn && p.id !== 'default_voice' && p.id !== 'boss_voxcpm2_lora')),
+      JSON.stringify(profiles.filter(p => !p.builtIn && p.id !== 'default_voice')),
     )
   }
 
@@ -110,7 +98,8 @@ export default function App() {
     return profile
   }
 
-  const handleDeleteVoiceProfile = (profileId) => {
+  const handleDeleteVoiceProfile = async (profileId) => {
+    await api.deleteVoice(profileId)
     saveVoiceProfiles(voiceProfiles.filter(p => p.builtIn || p.id !== profileId))
   }
 
@@ -392,7 +381,7 @@ export default function App() {
               uploadingBackground={uploadingBackground}
               voiceProfiles={voiceProfiles.map(profile => ({
                 ...profile,
-                name: profile.id === 'boss_voxcpm2_lora' ? t.form.lierwangVoice : (profile.id === 'default_voice' ? t.form.systemVoice : profile.name),
+                name: profile.id === 'default_voice' ? t.form.systemVoice : profile.name,
               })).filter(profile => profile.id === 'default_voice' || profile.trainingStatus === 'finished')}
               t={t}
             />

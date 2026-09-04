@@ -15,8 +15,14 @@ JOB_JSON="$JOB_DIR/job.json"
 PROGRESS_HELPER="$AI_WORKSPACE/app/backend/progress_update.py"
 LOG_DIR="$JOB_DIR/logs"
 LOG_FILE="$LOG_DIR/run.log"
+OUTPUT_DIR="${DHJR_OUTPUT_DIR:-$JOB_DIR/output}"
+WORK_DIR="${DHJR_JOB_WORK_DIR:-$JOB_DIR/work}"
+export DHJR_INPUT_DIR="${DHJR_INPUT_DIR:-$JOB_DIR/input}"
+export DHJR_OUTPUT_DIR="$OUTPUT_DIR"
+export DHJR_JOB_WORK_DIR="$WORK_DIR"
 
 mkdir -p "$LOG_DIR"
+mkdir -p "$OUTPUT_DIR" "$WORK_DIR"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "===================================="
@@ -36,24 +42,7 @@ fail_job() {
     local msg="${1:-Unknown error}"
     echo "[ERROR] $msg"
     echo "[ERROR] Job failed: $JOB_ID"
-    if [ -f "$JOB_JSON" ]; then
-        JOB_JSON_PATH="$JOB_JSON" FAIL_MSG="$msg" python3 - <<'PYEOF' || true
-import json, os, sys
-from pathlib import Path
-p = Path(os.environ["JOB_JSON_PATH"])
-msg = os.environ.get("FAIL_MSG", "Unknown error")
-try:
-    j = json.loads(p.read_text(encoding="utf-8"))
-    j["status"] = "failed"
-    j["error_message"] = msg
-    j.setdefault("progress", {})
-    j["progress"]["stage"] = "failed"
-    j["progress"]["message"] = msg
-    p.write_text(json.dumps(j, ensure_ascii=False, indent=2), encoding="utf-8")
-except Exception as e:
-    print(f"[WARN] Could not update job.json: {e}", file=sys.stderr)
-PYEOF
-    fi
+    python3 "$AI_WORKSPACE/app/backend/job_state_update.py" "$JOB_ID" failed "$msg" || true
     exit 1
 }
 
@@ -103,7 +92,6 @@ echo ""
 echo "===================================="
 echo "Step 4: Check voice files"
 echo "===================================="
-OUTPUT_DIR="${DHJR_OUTPUT_DIR:-$ENGINE_WORKSPACE/DigitalHumanOutput}"
 VOICE_WAV="$OUTPUT_DIR/voice.wav"
 VOICE_LS_WAV="$OUTPUT_DIR/voice_for_latentsync.wav"
 

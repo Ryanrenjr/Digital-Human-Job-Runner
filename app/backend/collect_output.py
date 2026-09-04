@@ -9,7 +9,8 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from settings import INPUT_DIR, JOBS_DIR, OUTPUT_DIR, WINDOWS_OUTPUT_DIR
+from settings import JOBS_DIR, WINDOWS_OUTPUT_DIR
+from job_store import save_job
 
 
 def now_iso() -> str:
@@ -34,7 +35,7 @@ def fail_job(job_path: Path | None, msg: str) -> None:
             job.setdefault("progress", {})
             job["progress"]["stage"] = "failed"
             job["progress"]["message"] = msg
-            save_json(job_path, job)
+            save_job(job)
             print(f"[INFO] job.json updated: status=failed")
         except Exception as e:
             print(f"[WARN] Could not update job.json after failure: {e}", file=sys.stderr)
@@ -60,26 +61,13 @@ def copy_audio_files(job_id: str) -> None:
         ("voice_for_latentsync.wav", "voice_for_latentsync.wav"),
     ]
     for src_name, dst_name in audio_files:
-        src = OUTPUT_DIR / src_name
+        src = job_output_dir / src_name
         dst = job_output_dir / dst_name
-        if src.exists():
+        if src.exists() and src.resolve() != dst.resolve():
             shutil.copy2(src, dst)
             print(f"[INFO] Copied audio: {src_name} -> job output/")
         else:
             print(f"[WARN] Audio file not found, skipping: {src_name}")
-
-
-def sync_input_files(job_id: str) -> None:
-    job_input_dir = JOBS_DIR / job_id / "input"
-    job_input_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("title.txt", "subtitle.txt", "keywords.txt", "script.txt"):
-        src = INPUT_DIR / name
-        dst = job_input_dir / name
-        if src.exists():
-            shutil.copy2(src, dst)
-            print(f"[INFO] Synced input: {name} -> job input/")
-        else:
-            print(f"[WARN] Input file not found, skipping: {src}")
 
 
 def copy_to_windows_desktop(job_id: str, src: Path) -> Path:
@@ -118,14 +106,14 @@ def main() -> None:
         fail_job(job_path, str(e))
 
     # --- Check clean_video.mp4 exists ---
-    clean_video_src = OUTPUT_DIR / "clean_video.mp4"
+    job_output_dir = JOBS_DIR / job_id / "output"
+    clean_video_src = job_output_dir / "clean_video.mp4"
     if not clean_video_src.exists():
         fail_job(job_path, f"clean_video.mp4 not found: {clean_video_src}")
 
     print(f"[INFO] clean_video.mp4 found: {clean_video_src}")
 
     # --- Ensure job output and logs dirs exist ---
-    job_output_dir = JOBS_DIR / job_id / "output"
     job_logs_dir = JOBS_DIR / job_id / "logs"
     job_output_dir.mkdir(parents=True, exist_ok=True)
     job_logs_dir.mkdir(parents=True, exist_ok=True)
@@ -134,23 +122,13 @@ def main() -> None:
     # --- Copy clean_video to job output ---
     print(f"[INFO] Collecting output files...")
     job_clean_video = job_output_dir / "clean_video.mp4"
-    try:
-        shutil.copy2(clean_video_src, job_clean_video)
-        print(f"[INFO] Copied clean_video.mp4 -> job output/")
-    except Exception as e:
-        fail_job(job_path, f"Failed to copy clean_video.mp4 to job output: {e}")
+    print(f"[INFO] Job output already contains clean_video.mp4; no shared output copy needed.")
 
     # --- Copy audio files (non-fatal if missing) ---
     try:
         copy_audio_files(job_id)
     except Exception as e:
         fail_job(job_path, f"Failed to copy audio files: {e}")
-
-    # --- Sync input files ---
-    try:
-        sync_input_files(job_id)
-    except Exception as e:
-        fail_job(job_path, f"Failed to sync input files: {e}")
 
     # --- Copy to Windows Desktop ---
     print(f"[INFO] Copying to Windows Desktop...")
@@ -179,7 +157,7 @@ def main() -> None:
         paths["voice_for_latentsync_wav"] = str(job_output_dir / "voice_for_latentsync.wav")
         paths["windows_desktop_output"] = str(windows_dst)
 
-        save_json(job_path, job)
+        save_job(job)
     except Exception as e:
         fail_job(job_path, f"Failed to update job.json: {e}")
 

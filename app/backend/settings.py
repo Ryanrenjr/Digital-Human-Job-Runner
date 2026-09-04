@@ -28,8 +28,8 @@ AI_WORKSPACE = Path(
     os.getenv("DHJR_WORKSPACE", str(Path.home() / "AI-Workspace"))
 ).expanduser()
 
-INPUT_DIR = Path(os.getenv("DHJR_INPUT_DIR", str(AI_WORKSPACE / "DigitalHumanInput"))).expanduser()
-OUTPUT_DIR = Path(os.getenv("DHJR_OUTPUT_DIR", str(AI_WORKSPACE / "DigitalHumanOutput"))).expanduser()
+INPUT_DIR = Path(os.getenv("DHJR_INPUT_DIR", str(AI_WORKSPACE / "jobs/_standalone/input"))).expanduser()
+OUTPUT_DIR = Path(os.getenv("DHJR_OUTPUT_DIR", str(AI_WORKSPACE / "jobs/_standalone/output"))).expanduser()
 JOBS_DIR = Path(os.getenv("DHJR_JOBS_DIR", str(AI_WORKSPACE / "jobs"))).expanduser()
 LOGS_DIR = Path(os.getenv("DHJR_LOGS_DIR", str(AI_WORKSPACE / "logs"))).expanduser()
 
@@ -42,17 +42,10 @@ BACKGROUND_ASSETS_DIR = Path(
 CUSTOM_BACKGROUNDS_DIR = BACKGROUND_ASSETS_DIR / "custom"
 THUMBNAILS_DIR = BACKGROUND_ASSETS_DIR / "thumbnails"
 
-DEFAULT_AVATAR_VIDEO = Path(
-    os.getenv(
-        "DHJR_DEFAULT_AVATAR_VIDEO",
-        str(AI_WORKSPACE / "VideoRefs/boss/default/boss_default.mp4"),
-    )
-).expanduser()
-
 DEFAULT_VOICE_ID = os.getenv("DHJR_DEFAULT_VOICE_ID", "default_voice")
 LEGACY_VOICE_IDS = {
     v.strip()
-    for v in os.getenv("DHJR_LEGACY_VOICE_IDS", "boss_voxcpm2_lora").split(",")
+    for v in os.getenv("DHJR_LEGACY_VOICE_IDS", "").split(",")
     if v.strip()
 }
 SUPPORTED_VOICE_IDS = {
@@ -64,7 +57,7 @@ SUPPORTED_VOICE_IDS.add(DEFAULT_VOICE_ID)
 SUPPORTED_VOICE_IDS.update(LEGACY_VOICE_IDS)
 
 WINDOWS_OUTPUT_DIR = Path(
-    os.getenv("DHJR_WINDOWS_OUTPUT_DIR", "/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput")
+    os.getenv("DHJR_WINDOWS_OUTPUT_DIR", str(AI_WORKSPACE / "exports"))
 ).expanduser()
 
 RUN_SCRIPT = os.getenv("DHJR_RUN_SCRIPT", str(AI_WORKSPACE / "scripts/run_cleanvideo_job.sh"))
@@ -104,3 +97,12 @@ LATENTSYNC_WORK_DIR = Path(
 ).expanduser()
 
 SHUTDOWN_EXE = os.getenv("DHJR_SHUTDOWN_EXE", "/mnt/c/Windows/System32/shutdown.exe")
+
+MAX_UPLOAD_BYTES = int(os.getenv("DHJR_MAX_UPLOAD_BYTES", str(1024 * 1024 * 1024)))
+MAX_TRAINING_UPLOAD_TOTAL_BYTES = int(
+    os.getenv("DHJR_MAX_TRAINING_UPLOAD_TOTAL_BYTES", str(8 * 1024 * 1024 * 1024))
+)
+MAX_BACKGROUND_DURATION_SECONDS = float(os.getenv("DHJR_MAX_BACKGROUND_DURATION_SECONDS", "600"))
+MAX_TRAINING_AUDIO_DURATION_SECONDS = float(
+    os.getenv("DHJR_MAX_TRAINING_AUDIO_DURATION_SECONDS", "7200")
+)

@@ -12,13 +12,15 @@ from pathlib import Path
 from pathlib import PureWindowsPath
 from settings import (
     BACKGROUNDS_JSON,
-    DEFAULT_AVATAR_VIDEO,
-    INPUT_DIR,
     JOBS_DIR,
-    OUTPUT_DIR,
     SUPPORTED_VOICE_IDS,
     WINDOWS_OUTPUT_DIR,
 )
+from job_store import save_job
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 def now_iso() -> str:
@@ -39,6 +41,12 @@ def save_json(path: Path, data: dict) -> None:
 
 def host_path(path_value: str) -> Path:
     raw = str(path_value)
+    if sys.platform.startswith("win"):
+        if raw.startswith("/mnt/") and len(raw) > 7 and raw[6] == "/":
+            drive = raw[5].upper()
+            rest = raw[7:].replace("/", "\\")
+            return Path(f"{drive}:\\{rest}")
+        return Path(raw)
     if len(raw) >= 3 and raw[1] == ":" and raw[2] in {"\\", "/"}:
         win_path = PureWindowsPath(raw)
         drive = win_path.drive.rstrip(":").lower()
@@ -57,7 +65,7 @@ def fail_job(job_path: Path | None, msg: str) -> None:
             job.setdefault("progress", {})
             job["progress"]["stage"] = "failed"
             job["progress"]["message"] = msg
-            save_json(job_path, job)
+            save_job(job)
             print(f"[INFO] job.json updated: status=failed")
         except Exception as e:
             print(f"[WARN] Could not update job.json after failure: {e}", file=sys.stderr)
@@ -81,7 +89,7 @@ def validate_job(job: dict, job_id: str) -> None:
         )
 
     status = job.get("status", "")
-    if status in ("running", "finished"):
+    if status in ("running", "collecting", "finished"):
         raise ValueError(
             f"Job status is '{status}'. Only pending/failed/cancelled jobs can be prepared."
         )
@@ -128,15 +136,6 @@ def resolve_background(background_id: str) -> Path:
     )
 
 
-def backup_input_files(stamp: str) -> None:
-    for name in ("title.txt", "subtitle.txt", "keywords.txt", "script.txt"):
-        src = INPUT_DIR / name
-        if src.exists():
-            dst = INPUT_DIR / f"{name}.bak_prepare_{stamp}"
-            shutil.copy2(src, dst)
-            print(f"[INFO] Backed up: {src.name} -> {dst.name}")
-
-
 def write_input_files(job: dict, job_input_dir: Path) -> None:
     keywords_text = "\n".join(job["keywords"])
 
@@ -148,10 +147,9 @@ def write_input_files(job: dict, job_input_dir: Path) -> None:
     ]
 
     for name, content in pairs:
-        for dest_dir in (INPUT_DIR, job_input_dir):
-            path = dest_dir / name
-            path.write_text(content, encoding="utf-8")
-        print(f"[INFO] Written: {name} -> DigitalHumanInput/ and job input/")
+        path = job_input_dir / name
+        path.write_text(content, encoding="utf-8")
+        print(f"[INFO] Written: job input/{name}")
 
     voice_profile = {
         "voice_id": job.get("voice_id", ""),
@@ -165,12 +163,11 @@ def write_input_files(job: dict, job_input_dir: Path) -> None:
     }
     voice_prompt = build_voice_prompt(voice_profile)
 
-    for dest_dir in (INPUT_DIR, job_input_dir):
-        (dest_dir / "voice_profile.json").write_text(
-            json.dumps(voice_profile, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        (dest_dir / "voice_prompt.txt").write_text(voice_prompt, encoding="utf-8")
+    (job_input_dir / "voice_profile.json").write_text(
+        json.dumps(voice_profile, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (job_input_dir / "voice_prompt.txt").write_text(voice_prompt, encoding="utf-8")
     print(f"[INFO] Written: voice_profile.json and voice_prompt.txt")
 
 
@@ -186,19 +183,7 @@ def build_voice_prompt(profile: dict) -> str:
     return "\n".join(parts) + "\n"
 
 
-def switch_background(background_id: str, job_id: str, bg_src: Path, stamp: str) -> None:
-    if DEFAULT_AVATAR_VIDEO.exists():
-        backup_name = f"default_avatar_backup_prepare_{job_id}_{stamp}.mp4"
-        backup_path = DEFAULT_AVATAR_VIDEO.parent / backup_name
-        shutil.copy2(DEFAULT_AVATAR_VIDEO, backup_path)
-        print(f"[INFO] Backed up default avatar video -> {backup_name}")
-
-    DEFAULT_AVATAR_VIDEO.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(bg_src, DEFAULT_AVATAR_VIDEO)
-    print(f"[INFO] Avatar video switched: {background_id} ({bg_src.name}) -> {DEFAULT_AVATAR_VIDEO.name}")
-
-
-def clean_old_outputs() -> None:
+def clean_job_outputs(job_output_dir: Path) -> None:
     files_to_remove = [
         "clean_video.mp4",
         "final_video.mp4",
@@ -215,13 +200,13 @@ def clean_old_outputs() -> None:
     ]
 
     for name in files_to_remove:
-        p = OUTPUT_DIR / name
+        p = job_output_dir / name
         if p.exists():
             p.unlink()
             print(f"[INFO] Removed old output file: {name}")
 
     for name in dirs_to_remove:
-        p = OUTPUT_DIR / name
+        p = job_output_dir / name
         if p.exists():
             shutil.rmtree(p)
             print(f"[INFO] Removed old output dir: {name}")
@@ -234,6 +219,9 @@ def build_paths(job_id: str, output_type: str = "clean_video") -> dict:
         "job_dir": str(job_dir),
         "input_dir": str(job_dir / "input"),
         "output_dir": str(job_dir / "output"),
+        "workspace_dir": str(job_dir / "workspace"),
+        "work_dir": str(job_dir / "work"),
+        "avatar_video": str(job_dir / "input/avatar.mp4"),
         "log_dir": str(job_dir / "logs"),
         "title_txt": str(job_dir / "input/title.txt"),
         "subtitle_txt": str(job_dir / "input/subtitle.txt"),
@@ -300,7 +288,7 @@ def main() -> None:
     output_type = job["output_type"]
     stamp = now_stamp()
 
-    # --- Resolve + switch background (clean_video only) ---
+    # --- Resolve background without touching any shared engine asset ---
     if output_type == "clean_video":
         try:
             bg_src = resolve_background(job["background_id"])
@@ -317,13 +305,6 @@ def main() -> None:
         (job_dir / subdir).mkdir(parents=True, exist_ok=True)
     print(f"[INFO] Job directories ensured: {job_dir}/{{input,output,logs}}")
 
-    # --- Backup current workspace input files ---
-    print(f"[INFO] Backing up DigitalHumanInput/ files...")
-    try:
-        backup_input_files(stamp)
-    except Exception as e:
-        fail_job(job_path, f"Failed to backup input files: {e}")
-
     # --- Write input files ---
     print(f"[INFO] Writing input files...")
     try:
@@ -332,16 +313,17 @@ def main() -> None:
         fail_job(job_path, f"Failed to write input files: {e}")
 
     if output_type == "clean_video":
-        print(f"[INFO] Switching background to: {job['background_id']}")
+        print(f"[INFO] Copying background into this job workspace: {job['background_id']}")
         try:
-            switch_background(job["background_id"], job_id, bg_src, stamp)
+            shutil.copy2(bg_src, job_dir / "input/avatar.mp4")
+            print(f"[INFO] Avatar video: {job_dir / 'input/avatar.mp4'}")
         except Exception as e:
-            fail_job(job_path, f"Failed to switch background: {e}")
+            fail_job(job_path, f"Failed to prepare avatar video: {e}")
 
-    # --- Clean old outputs ---
-    print(f"[INFO] Cleaning old DigitalHumanOutput/ files...")
+    # --- Clean only this job's previous outputs ---
+    print(f"[INFO] Cleaning this job's previous output files...")
     try:
-        clean_old_outputs()
+        clean_job_outputs(job_dir / "output")
     except Exception as e:
         fail_job(job_path, f"Failed to clean old outputs: {e}")
 
@@ -359,7 +341,7 @@ def main() -> None:
         job["progress"]["percent"] = 0
         job["progress"]["message"] = "Job prepared successfully"
         job["paths"] = build_paths(job_id, output_type)
-        save_json(job_path, job)
+        save_job(job)
     except Exception as e:
         fail_job(job_path, f"Failed to update job.json: {e}")
 

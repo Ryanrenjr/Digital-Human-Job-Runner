@@ -1,5 +1,5 @@
-fastapi
-uvicorn[standard]
-python-multipart
-pydantic
-zstandard
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-multipart==0.0.32
+pydantic==2.13.5
+zstandard==0.25.0

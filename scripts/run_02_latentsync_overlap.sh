@@ -6,7 +6,13 @@ echo "Step 2 OVERLAP FULL"
 echo "Frame-locked overlap window LatentSync full render"
 echo "===================================="
 
-cd ~/AI-Workspace/projects/LatentSync
+ENGINE_WORKSPACE="${DHJR_ENGINE_WORKSPACE:-$HOME/AI-Workspace}"
+LATENTSYNC_PROJECT="${DHJR_LATENTSYNC_PROJECT:-$ENGINE_WORKSPACE/projects/LatentSync}"
+OUTPUT_DIR="${DHJR_OUTPUT_DIR:-$PWD/output}"
+JOB_WORK_DIR="${DHJR_JOB_WORK_DIR:-$LATENTSYNC_PROJECT/data/overlap_full_work}"
+AVATAR_VIDEO="${DHJR_AVATAR_VIDEO:-$ENGINE_WORKSPACE/VideoRefs/default/avatar.mp4}"
+
+cd "$LATENTSYNC_PROJECT"
 
 source ~/miniconda3/etc/profile.d/conda.sh
 conda activate latentsync
@@ -30,24 +36,19 @@ update_progress() {
   fi
 }
 
-WORK_DIR="data/overlap_full_work"
-INPUT_AUDIO_FULL="${DHJR_INPUT_AUDIO_FULL:-$HOME/AI-Workspace/DigitalHumanOutput/voice_for_latentsync.wav}"
+WORK_DIR="$JOB_WORK_DIR"
+INPUT_AUDIO_FULL="${DHJR_INPUT_AUDIO_FULL:-$OUTPUT_DIR/voice_for_latentsync.wav}"
 MUX_AUDIO_FULL="${DHJR_MUX_AUDIO_FULL:-$INPUT_AUDIO_FULL}"
-INPUT_AUDIO="data/input/voice_for_overlap_full.wav"
-RAW_BOSS_VIDEO="data/input/boss_default.mp4"
+INPUT_AUDIO="$WORK_DIR/voice_for_overlap_full.wav"
+RAW_BOSS_VIDEO="$WORK_DIR/avatar_source.mp4"
 FULL_LOOP_VIDEO="$WORK_DIR/boss_full_loop_fast.mp4"
 
 rm -rf "$WORK_DIR"
 mkdir -p "$WORK_DIR"
-mkdir -p data/input
-
-rm -f ~/AI-Workspace/DigitalHumanOutput/clean_video.mp4
-rm -f ~/AI-Workspace/DigitalHumanOutput/main_video_no_endcard.mp4
-rm -f ~/AI-Workspace/DigitalHumanOutput/main_video_trimmed.mp4
-rm -f ~/AI-Workspace/DigitalHumanOutput/final_video.mp4
+mkdir -p "$OUTPUT_DIR"
 
 cp "$INPUT_AUDIO_FULL" "$INPUT_AUDIO"
-cp ~/AI-Workspace/VideoRefs/boss/default/boss_default.mp4 "$RAW_BOSS_VIDEO"
+cp "$AVATAR_VIDEO" "$RAW_BOSS_VIDEO"
 
 AUDIO_DUR=$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$INPUT_AUDIO")
 echo "Full audio duration: $AUDIO_DUR seconds"
@@ -268,12 +269,12 @@ ffmpeg -y -nostdin \
   -c:v libx264 -crf 23 -preset veryfast \
   -c:a aac -b:a 160k \
   -pix_fmt yuv420p \
-  ~/AI-Workspace/DigitalHumanOutput/clean_video.mp4
+  "$OUTPUT_DIR/clean_video.mp4"
 
 echo "Checking durations..."
 ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$INPUT_AUDIO"
-ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 ~/AI-Workspace/DigitalHumanOutput/clean_video.mp4
+ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$OUTPUT_DIR/clean_video.mp4"
 
 echo "Step 2 OVERLAP FULL completed."
 echo "Output:"
-echo "~/AI-Workspace/DigitalHumanOutput/clean_video.mp4"
+echo "$OUTPUT_DIR/clean_video.mp4"

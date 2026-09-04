@@ -23,7 +23,7 @@ _PIPELINE_MARKERS = [
 def check_no_other_running_job(job_id: str) -> Optional[str]:
     """Return the job_id of a running job that is NOT this job, or None."""
     for j in list_jobs():
-        if j.get("status") == "running" and j.get("job_id") != job_id:
+        if j.get("status") in {"starting", "running", "collecting"} and j.get("job_id") != job_id:
             return j["job_id"]
     return None
 
@@ -44,6 +44,19 @@ def is_job_process_running(job_id: str) -> bool:
     Returns False on any exception so callers stay safe.
     """
     try:
+        job = load_job(job_id)
+        recorded_pid = job.get("launcher_pid") if job else None
+        if recorded_pid:
+            if sys.platform.startswith("win"):
+                probe = subprocess.run(
+                    ["tasklist", "/FI", f"PID eq {int(recorded_pid)}", "/NH"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if str(recorded_pid) in probe.stdout:
+                    return True
+            else:
+                os.kill(int(recorded_pid), 0)
+                return True
         lines = _ps_lines()
 
         for line in lines:
@@ -67,6 +80,19 @@ def kill_job_process(job_id: str) -> bool:
     Returns True if at least one process was signalled.
     """
     try:
+        job = load_job(job_id)
+        recorded_pid = job.get("launcher_pid") if job else None
+        if recorded_pid and sys.platform.startswith("win"):
+            probe = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {int(recorded_pid)}", "/NH"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if str(recorded_pid) in probe.stdout:
+                subprocess.run(
+                    ["taskkill", "/PID", str(int(recorded_pid)), "/T", "/F"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+                )
+                return True
         lines = _ps_lines()
 
         def _kill_pgid(pid: int) -> bool:
@@ -159,21 +185,25 @@ def _to_wsl_path(path: str | Path) -> str:
 def _build_wsl_command(script: str, job_id: str) -> list[str]:
     app_workspace = _to_wsl_path(AI_WORKSPACE)
     script_path = _to_wsl_path(script)
-    engine_workspace = os.getenv("DHJR_ENGINE_WORKSPACE", "/home/ryanrenjr/AI-Workspace")
-    windows_output_dir = os.getenv("DHJR_WINDOWS_OUTPUT_DIR", "/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput")
+    engine_workspace = os.getenv("DHJR_ENGINE_WORKSPACE", "")
+    windows_output_dir = os.getenv("DHJR_WINDOWS_OUTPUT_DIR", f"{app_workspace}/exports")
+    job_workspace = f"{app_workspace}/jobs/{job_id}"
+    engine_expr = shlex.quote(engine_workspace) if engine_workspace else "$HOME/AI-Workspace"
 
     env = {
         "DHJR_WORKSPACE": app_workspace,
         "DHJR_JOBS_DIR": f"{app_workspace}/jobs",
         "DHJR_BACKGROUNDS_JSON": f"{app_workspace}/app/config/backgrounds.json",
         "DHJR_BACKGROUND_ASSETS_DIR": f"{app_workspace}/assets/backgrounds",
-        "DHJR_INPUT_DIR": f"{engine_workspace}/DigitalHumanInput",
-        "DHJR_OUTPUT_DIR": f"{engine_workspace}/DigitalHumanOutput",
-        "DHJR_DEFAULT_AVATAR_VIDEO": f"{engine_workspace}/VideoRefs/boss/default/boss_default.mp4",
+        "DHJR_INPUT_DIR": f"{job_workspace}/input",
+        "DHJR_OUTPUT_DIR": f"{job_workspace}/output",
+        "DHJR_JOB_WORKSPACE": f"{job_workspace}/workspace",
+        "DHJR_JOB_WORK_DIR": f"{job_workspace}/work",
+        "DHJR_AVATAR_VIDEO": f"{job_workspace}/input/avatar.mp4",
         "DHJR_WINDOWS_OUTPUT_DIR": windows_output_dir,
-        "DHJR_ENGINE_WORKSPACE": engine_workspace,
     }
     exports = " ".join(f"{key}={shlex.quote(value)}" for key, value in env.items())
+    exports += f" DHJR_ENGINE_WORKSPACE={engine_expr}"
     clean_script = f"/tmp/dhjr_{shlex.quote(job_id)}_{Path(script).name}"
     command = (
         f"cd {shlex.quote(app_workspace)} && "
@@ -203,6 +233,17 @@ def start_job(job_id: str) -> int:
     if not job:
         raise RuntimeError(f"任务不存在：{job_id}")
 
+    run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+    job["status"] = "starting"
+    job["run_id"] = run_id
+    job["started_at"] = job.get("started_at") or _now_iso()
+    job.setdefault("progress", {}).update({
+        "stage": "starting",
+        "percent": 0,
+        "message": "正在启动任务",
+    })
+    save_job(job)
+
     if not _trained_voice_ready(job):
         message = "这个声音还没有完成后台训练，请先在“素材与训练”里完成声音训练；现在可以先选择“系统默认声音”测试视频生成。"
         _mark_failed(job, message)
@@ -228,6 +269,10 @@ def start_job(job_id: str) -> int:
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+    job = load_job(job_id) or job
+    job["launcher_pid"] = proc.pid
+    job["process_group_id"] = proc.pid
+    save_job(job)
     time.sleep(1.5)
     if proc.poll() is not None:
         log_path = Path(job.get("paths", {}).get("run_log", ""))

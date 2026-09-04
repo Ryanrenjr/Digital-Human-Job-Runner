@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Write a live pipeline progress update for one job."""
 
-import json
 import sys
-from pathlib import Path
+
+from job_store import load_job, save_job
 
 
 def main() -> None:
@@ -18,12 +18,10 @@ def main() -> None:
     current = int(sys.argv[5]) if len(sys.argv) > 5 else None
     total = int(sys.argv[6]) if len(sys.argv) > 6 else None
 
-    workspace = Path(__import__("os").environ.get("DHJR_WORKSPACE", Path.cwd()))
-    job_path = workspace / "jobs" / job_id / "job.json"
-    if not job_path.exists():
+    job = load_job(job_id)
+    if not job:
         return
 
-    job = json.loads(job_path.read_text(encoding="utf-8"))
     progress = job.setdefault("progress", {})
     progress.update({"stage": stage, "percent": percent, "message": message})
     if current is not None:
@@ -31,10 +29,7 @@ def main() -> None:
     if total is not None:
         progress["total_windows"] = total
 
-    # Replace atomically so the API never reads half-written JSON.
-    temp_path = job_path.with_suffix(".progress.tmp")
-    temp_path.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
-    temp_path.replace(job_path)
+    save_job(job)
 
 
 if __name__ == "__main__":

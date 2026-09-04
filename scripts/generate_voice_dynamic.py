@@ -10,22 +10,23 @@ from voxcpm import VoxCPM
 
 ROOT = Path(os.environ.get("DHJR_ENGINE_WORKSPACE", str(Path.home() / "AI-Workspace")))
 APP_WORKSPACE = Path(os.environ.get("DHJR_WORKSPACE", str(ROOT)))
-INPUT_DIR = Path(os.environ.get("DHJR_INPUT_DIR", str(ROOT / "DigitalHumanInput")))
-OUTPUT_DIR = Path(os.environ.get("DHJR_OUTPUT_DIR", str(ROOT / "DigitalHumanOutput")))
+JOB_ID = os.environ.get("DHJR_JOB_ID", "standalone")
+JOB_DIR = APP_WORKSPACE / "jobs" / JOB_ID
+INPUT_DIR = Path(os.environ.get("DHJR_INPUT_DIR", str(JOB_DIR / "input")))
+OUTPUT_DIR = Path(os.environ.get("DHJR_OUTPUT_DIR", str(JOB_DIR / "output")))
 SEG_DIR = OUTPUT_DIR / "audio_segments"
 
 BASE_MODEL_DIR = Path(os.environ.get(
     "DHJR_VOXCPM_PRETRAINED",
     str(ROOT / "projects/VoxCPM/pretrained_models/VoxCPM2"),
 ))
-DEFAULT_LORA_CKPT_DIR = Path("/home/ryanrenjr/voxlora/checkpoints/boss_lora_fast/step_0000300")
-DEFAULT_REF_WAV = ROOT / "VoiceRefs/boss/default/boss_default.wav"
-DEFAULT_REF_TEXT = "这个人叫彼得·曼德尔森,他是英国政坛可不是小人物,而是工党中非常有分量的老牌人物。但这次的问题出在,他在正式上任前,安全审查没有顺利通过。"
+DEFAULT_LORA_CKPT_DIR = os.environ.get("DHJR_DEFAULT_LORA_CHECKPOINT", "").strip()
+DEFAULT_REF_WAV = os.environ.get("DHJR_DEFAULT_REFERENCE_WAV", "").strip()
+DEFAULT_REF_TEXT = os.environ.get("DHJR_DEFAULT_REFERENCE_TEXT", "").strip()
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SEG_DIR.mkdir(parents=True, exist_ok=True)
 
-JOB_ID = os.environ.get("DHJR_JOB_ID", "")
 PROGRESS_HELPER = os.environ.get("DHJR_PROGRESS_HELPER", "")
 
 PAUSE_SECONDS = 0.06
@@ -207,17 +208,17 @@ def main():
     reference_wav = voice_profile.get("reference_wav_path") or ""
     reference_text = voice_profile.get("reference_text") or ""
 
-    lora_ckpt_dir = Path(checkpoint_path) if checkpoint_path else DEFAULT_LORA_CKPT_DIR
-    ref_wav = Path(reference_wav) if reference_wav else DEFAULT_REF_WAV
+    lora_ckpt_dir = Path(checkpoint_path or DEFAULT_LORA_CKPT_DIR) if (checkpoint_path or DEFAULT_LORA_CKPT_DIR) else None
+    ref_wav = Path(reference_wav or DEFAULT_REF_WAV) if (reference_wav or DEFAULT_REF_WAV) else None
     ref_text = reference_text or DEFAULT_REF_TEXT
 
     print("Voice profile:", json.dumps(voice_profile, ensure_ascii=False))
-    print("LoRA checkpoint:", lora_ckpt_dir)
-    print("Reference wav:", ref_wav)
+    print("LoRA checkpoint:", lora_ckpt_dir or "base model")
+    print("Reference wav:", ref_wav or "none")
 
-    if not (lora_ckpt_dir / "lora_config.json").exists():
+    if lora_ckpt_dir and not (lora_ckpt_dir / "lora_config.json").exists():
         raise FileNotFoundError(f"lora_config.json not found: {lora_ckpt_dir}")
-    if not ref_wav.exists():
+    if ref_wav and not ref_wav.exists():
         raise FileNotFoundError(f"reference wav not found: {ref_wav}")
 
     segments = split_script_for_voice(script)
@@ -227,18 +228,19 @@ def main():
     for i, seg in enumerate(segments, 1):
         print(f"{i:03d}. len={len(seg)} | {seg}")
 
-    print("Loading VoxCPM2 + LoRA...")
+    print("Loading VoxCPM2%s..." % (" + saved voice profile" if lora_ckpt_dir else " base model"))
     update_progress(8, "正在加载声音模型")
-    from voxcpm.model.voxcpm import LoRAConfig
-    lora_info = json.loads((lora_ckpt_dir / "lora_config.json").read_text(encoding="utf-8"))
-    lora_cfg = LoRAConfig(**lora_info["lora_config"])
-    model = VoxCPM.from_pretrained(
-        hf_model_id=str(BASE_MODEL_DIR),
-        load_denoiser=False,
-        optimize=True,
-        lora_config=lora_cfg,
-        lora_weights_path=str(lora_ckpt_dir),
-    )
+    model_kwargs = {
+        "hf_model_id": str(BASE_MODEL_DIR),
+        "load_denoiser": False,
+        "optimize": True,
+    }
+    if lora_ckpt_dir:
+        from voxcpm.model.voxcpm import LoRAConfig
+        lora_info = json.loads((lora_ckpt_dir / "lora_config.json").read_text(encoding="utf-8"))
+        model_kwargs["lora_config"] = LoRAConfig(**lora_info["lora_config"])
+        model_kwargs["lora_weights_path"] = str(lora_ckpt_dir)
+    model = VoxCPM.from_pretrained(**model_kwargs)
     print("Model + LoRA loaded.")
     update_progress(12, "声音模型已加载，开始生成语音")
 
@@ -257,15 +259,19 @@ def main():
         print(text)
         segment_percent = 12 + round((i - 1) / max(1, len(segments)) * 20)
         update_progress(segment_percent, f"正在生成第 {i} / {len(segments)} 段声音")
-        wav = model.generate(
-            text=text,
-            prompt_wav_path=str(ref_wav),
-            prompt_text=ref_text,
-            reference_wav_path=str(ref_wav),
-            cfg_value=2.5,
-            inference_timesteps=25,
-            denoise=False,
-        )
+        generation_kwargs = {
+            "text": text,
+            "cfg_value": 2.5,
+            "inference_timesteps": 25,
+            "denoise": False,
+        }
+        if ref_wav:
+            generation_kwargs.update({
+                "prompt_wav_path": str(ref_wav),
+                "prompt_text": ref_text,
+                "reference_wav_path": str(ref_wav),
+            })
+        wav = model.generate(**generation_kwargs)
         max_duration = estimate_max_duration(text)
         limited_wav = limit_wav_duration(wav, model.tts_model.sample_rate, max_duration)
         if len(limited_wav) < len(wav):
@@ -304,7 +310,7 @@ def main():
         "subtitle": subtitle,
         "mainTitle": title,
         "subTitle": subtitle,
-        "voiceMode": "voxcpm2_lora_profile",
+        "voiceMode": "saved_voice_profile" if lora_ckpt_dir else "base_tts",
         "voiceEngine": "VoxCPM2",
         "voiceStyle": voice_profile.get("style", ""),
         "voiceSegments": timeline_segments,

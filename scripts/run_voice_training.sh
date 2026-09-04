@@ -2,7 +2,7 @@
 set -e
 
 AI_WORKSPACE="${DHJR_WORKSPACE:-$HOME/AI-Workspace}"
-ENGINE_WORKSPACE="${DHJR_ENGINE_WORKSPACE:-/home/ryanrenjr/AI-Workspace}"
+ENGINE_WORKSPACE="${DHJR_ENGINE_WORKSPACE:-$HOME/AI-Workspace}"
 OFFICIAL_VOXCPM="${DHJR_VOXCPM_OFFICIAL:-$ENGINE_WORKSPACE/projects/VoxCPM-official}"
 PRETRAINED_PATH="${DHJR_VOXCPM_PRETRAINED:-$ENGINE_WORKSPACE/projects/VoxCPM/pretrained_models/VoxCPM2}"
 
@@ -32,17 +32,18 @@ echo "===================================="
 fail_voice() {
     local msg="${1:-Unknown voice training error}"
     echo "[ERROR] $msg"
-    PROFILE_JSON="$PROFILE_JSON" FAIL_MSG="$msg" python3 - <<'PYEOF' || true
+    PROFILE_JSON="$PROFILE_JSON" FAIL_MSG="$msg" PYTHONPATH="$AI_WORKSPACE/app/backend:$PYTHONPATH" python3 - <<'PYEOF' || true
 import json, os
 from datetime import datetime
 from pathlib import Path
+from voice_store import save_voice_profile
 p = Path(os.environ["PROFILE_JSON"])
 if p.exists():
     j = json.loads(p.read_text(encoding="utf-8"))
     j["trainingStatus"] = "failed"
     j["trainingFinishedAt"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     j["trainingError"] = os.environ.get("FAIL_MSG", "Unknown voice training error")
-    p.write_text(json.dumps(j, ensure_ascii=False, indent=2), encoding="utf-8")
+    save_voice_profile(j)
 PYEOF
     exit 1
 }
@@ -75,7 +76,7 @@ echo ""
 echo "Step 2: Slice speech clips"
 source "$HOME/miniconda3/etc/profile.d/conda.sh"
 conda activate voxcpm
-PYTHONPATH="$OFFICIAL_VOXCPM/src:$PYTHONPATH" TRAIN_RAW_WAV_DIR="$RAW_WAV_DIR" TRAIN_CLIPS_DIR="$CLIPS_DIR" python "$AI_WORKSPACE/scripts/voice_slice_audio.py"
+PYTHONPATH="$AI_WORKSPACE/app/backend:$OFFICIAL_VOXCPM/src:$PYTHONPATH" TRAIN_RAW_WAV_DIR="$RAW_WAV_DIR" TRAIN_CLIPS_DIR="$CLIPS_DIR" python "$AI_WORKSPACE/scripts/voice_slice_audio.py"
 
 echo ""
 echo "Step 3: Transcribe clips"
@@ -134,16 +135,17 @@ if [ ! -f "$CKPT/lora_weights.safetensors" ]; then
     fail_voice "训练完成但没有找到 lora_weights.safetensors。"
 fi
 
-PROFILE_JSON="$PROFILE_JSON" TRAIN_TRANSCRIPT_FINAL="$TRAIN_DIR/transcripts_final.tsv" CKPT="$CKPT" python "$AI_WORKSPACE/scripts/voice_select_reference.py"
+PROFILE_JSON="$PROFILE_JSON" TRAIN_TRANSCRIPT_FINAL="$TRAIN_DIR/transcripts_final.tsv" CKPT="$CKPT" PYTHONPATH="$AI_WORKSPACE/app/backend:$PYTHONPATH" python "$AI_WORKSPACE/scripts/voice_select_reference.py"
 
-PROFILE_JSON="$PROFILE_JSON" python3 - <<'PYEOF'
+PROFILE_JSON="$PROFILE_JSON" PYTHONPATH="$AI_WORKSPACE/app/backend:$PYTHONPATH" python3 - <<'PYEOF'
 import json, os
 from datetime import datetime
 from pathlib import Path
+from voice_store import save_voice_profile
 p = Path(os.environ["PROFILE_JSON"])
 j = json.loads(p.read_text(encoding="utf-8"))
 j["trainingFinishedAt"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-p.write_text(json.dumps(j, ensure_ascii=False, indent=2), encoding="utf-8")
+save_voice_profile(j)
 PYEOF
 
 echo "===================================="

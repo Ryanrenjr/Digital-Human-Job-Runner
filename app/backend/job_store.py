@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from database import delete_job as db_delete_job
+from database import get_job, list_jobs as db_list_jobs, upsert_job
 from schemas import JobCreateRequest
 from settings import DEFAULT_VOICE_ID, JOBS_DIR, WINDOWS_OUTPUT_DIR
 
@@ -23,29 +25,55 @@ def _job_path(job_id: str) -> Path:
     return JOBS_DIR / job_id / "job.json"
 
 
+def _write_json_mirror(job: dict) -> None:
+    p = _job_path(job["job_id"])
+    p.parent.mkdir(parents=True, exist_ok=True)
+    temp = p.with_suffix(".json.tmp")
+    temp.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(p)
+
+
+def migrate_legacy_jobs() -> None:
+    """Import old job.json files once, without replacing newer SQLite rows."""
+    JOBS_DIR.mkdir(parents=True, exist_ok=True)
+    known = {job.get("job_id") for job in db_list_jobs()}
+    for job_json in JOBS_DIR.glob("*/job.json"):
+        try:
+            job = json.loads(job_json.read_text(encoding="utf-8"))
+            if job.get("job_id") and job["job_id"] not in known:
+                upsert_job(job)
+                known.add(job["job_id"])
+        except Exception as exc:
+            logger.warning("Skipping legacy job.json: %s — %s", job_json, exc)
+
+
 def load_job(job_id: str) -> Optional[dict]:
+    migrate_legacy_jobs()
+    job = get_job(job_id)
+    if job is not None:
+        return job
     p = _job_path(job_id)
     if not p.exists():
         return None
-    return json.loads(p.read_text(encoding="utf-8"))
+    job = json.loads(p.read_text(encoding="utf-8"))
+    upsert_job(job)
+    return job
 
 
 def save_job(job: dict) -> None:
-    job_id = job["job_id"]
-    p = _job_path(job_id)
-    p.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
+    job["updated_at"] = _now_iso()
+    upsert_job(job)
+    _write_json_mirror(job)
 
 
 def list_jobs() -> list:
-    jobs = []
-    for job_json in JOBS_DIR.glob("*/job.json"):
-        try:
-            j = json.loads(job_json.read_text(encoding="utf-8"))
-            jobs.append(j)
-        except Exception as e:
-            logger.warning("Skipping unreadable job.json: %s — %s", job_json, e)
-    jobs.sort(key=lambda j: j.get("created_at", ""), reverse=True)
-    return jobs
+    migrate_legacy_jobs()
+    return db_list_jobs()
+
+
+def delete_job(job_id: str) -> None:
+    db_delete_job(job_id)
+    _job_path(job_id).unlink(missing_ok=True)
 
 
 def get_running_job() -> Optional[dict]:
@@ -61,6 +89,9 @@ def _build_paths(job_id: str) -> dict:
         "job_dir": str(job_dir),
         "input_dir": str(job_dir / "input"),
         "output_dir": str(job_dir / "output"),
+        "workspace_dir": str(job_dir / "workspace"),
+        "work_dir": str(job_dir / "work"),
+        "avatar_video": str(job_dir / "input/avatar.mp4"),
         "log_dir": str(job_dir / "logs"),
         "title_txt": str(job_dir / "input/title.txt"),
         "subtitle_txt": str(job_dir / "input/subtitle.txt"),
@@ -86,7 +117,8 @@ def _normalize_keywords(raw) -> list:
 
 
 def create_job(req: JobCreateRequest) -> dict:
-    job_id = f"{_now_stamp()}_video_job"
+    # Microseconds prevent collisions when the UI submits twice in one second.
+    job_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_video_job"
     job_dir = JOBS_DIR / job_id
 
     for subdir in ("input", "output", "logs"):

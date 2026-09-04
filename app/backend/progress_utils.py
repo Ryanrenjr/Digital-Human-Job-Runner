@@ -2,12 +2,9 @@ import json
 import math
 import subprocess
 from pathlib import Path
-from settings import FFPROBE_CANDIDATES, JOBS_DIR, LATENTSYNC_WORK_DIR, OUTPUT_DIR
+from job_store import load_job
+from settings import FFPROBE_CANDIDATES
 
-LATENTSYNC_WORK = LATENTSYNC_WORK_DIR
-
-VOICE_LS_WAV   = OUTPUT_DIR / "voice_for_latentsync.wav"
-CLEAN_VIDEO    = OUTPUT_DIR / "clean_video.mp4"
 
 
 def _audio_duration(path: Path) -> float:
@@ -41,9 +38,10 @@ def get_cleanvideo_progress(job_id: str) -> dict:
     - Running jobs: inspects filesystem to compute real-time stage/percent.
     - Never raises; returns {} on read failure so callers stay safe.
     """
-    job_path = JOBS_DIR / job_id / "job.json"
     try:
-        job = json.loads(job_path.read_text(encoding="utf-8"))
+        job = load_job(job_id)
+        if not job:
+            return {}
     except Exception:
         return {}
 
@@ -59,7 +57,7 @@ def get_cleanvideo_progress(job_id: str) -> dict:
             "message":        "CleanVideo generated successfully",
         }
 
-    if status in ("failed", "cancelled", "pending"):
+    if status in ("failed", "cancelled", "pending", "starting"):
         return existing
 
     if status != "running":
@@ -73,7 +71,12 @@ def get_cleanvideo_progress(job_id: str) -> dict:
     # --- Dynamic detection for running jobs ---
     try:
         # A: voice not yet generated — still in VoxCPM2 / postprocess
-        if not VOICE_LS_WAV.exists():
+        paths = job.get("paths", {})
+        voice_ls_wav = Path(paths["voice_for_latentsync_wav"]) if paths.get("voice_for_latentsync_wav") else None
+        clean_video = Path(paths["clean_video"]) if paths.get("clean_video") else None
+        latent_work = Path(paths["work_dir"]) if paths.get("work_dir") else None
+
+        if not voice_ls_wav or not voice_ls_wav.exists():
             return {
                 "stage":          "voice_generation",
                 "current_window": 0,
@@ -83,7 +86,7 @@ def get_cleanvideo_progress(job_id: str) -> dict:
             }
 
         # C: clean_video exists but job not marked finished — collecting output
-        if CLEAN_VIDEO.exists():
+        if clean_video and clean_video.exists():
             return {
                 "stage":          "collecting_output",
                 "current_window": existing.get("current_window", 0),
@@ -93,10 +96,10 @@ def get_cleanvideo_progress(job_id: str) -> dict:
             }
 
         # B: LatentSync in progress
-        duration = _audio_duration(VOICE_LS_WAV)
+        duration = _audio_duration(voice_ls_wav)
         total_windows = math.ceil(duration / 6) if duration > 0 else 0
 
-        core_files    = list(LATENTSYNC_WORK.glob("core_*.mp4"))
+        core_files    = list(latent_work.glob("core_*.mp4")) if latent_work else []
         current_window = len(core_files)
 
         if total_windows > 0:

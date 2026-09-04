@@ -9,7 +9,8 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from settings import JOBS_DIR, OUTPUT_DIR, WINDOWS_OUTPUT_DIR
+from settings import JOBS_DIR, WINDOWS_OUTPUT_DIR
+from job_store import save_job
 
 
 def now_iso():
@@ -34,7 +35,7 @@ def fail_job(job_path, msg):
             job.setdefault("progress", {})
             job["progress"]["stage"]   = "failed"
             job["progress"]["message"] = msg
-            save_json(job_path, job)
+            save_job(job)
         except Exception as e:
             print(f"[WARN] Could not update job.json: {e}", file=sys.stderr)
     sys.exit(1)
@@ -58,19 +59,18 @@ def main():
     except Exception as e:
         fail_job(None, f"Failed to parse job.json: {e}")
 
-    voice_src = OUTPUT_DIR / "voice.wav"
+    job_output_dir = JOBS_DIR / job_id / "output"
+    voice_src = job_output_dir / "voice.wav"
     if not voice_src.exists():
         fail_job(job_path, f"voice.wav not found: {voice_src}")
 
-    job_output_dir = JOBS_DIR / job_id / "output"
     job_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Copy voice files to job output
     for name in ("voice.wav", "voice_for_latentsync.wav"):
-        src = OUTPUT_DIR / name
+        src = job_output_dir / name
         if src.exists():
-            shutil.copy2(src, job_output_dir / name)
-            print(f"[INFO] Copied {name} -> job output/")
+            print(f"[INFO] Job output contains {name}")
         else:
             print(f"[WARN] {name} not found, skipping")
 
@@ -103,7 +103,7 @@ def main():
         if win_dst:
             paths["windows_desktop_output"] = str(win_dst)
 
-        save_json(job_path, job)
+        save_job(job)
         print(f"[INFO] job.json updated: status=finished")
     except Exception as e:
         fail_job(job_path, f"Failed to update job.json: {e}")

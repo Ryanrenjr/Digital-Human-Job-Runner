@@ -1,4 +1,5 @@
 import logging
+import json
 import os
 import re
 import shutil
@@ -21,7 +22,7 @@ from background_utils import (
     make_background_id,
     save_backgrounds,
 )
-from job_store import create_job, list_jobs, load_job, save_job
+from job_store import create_job, delete_job, list_jobs, load_job, save_job
 from progress_utils import get_cleanvideo_progress
 from queue_runner import queue_runner
 from runner import check_no_other_running_job, is_job_process_running, kill_job_process, start_job
@@ -35,12 +36,94 @@ from schemas import (
     ScriptFormatRequest,
 )
 import script_assistant
-from settings import AI_WORKSPACE, APP_NAME, APP_VERSION, EXTRA_CORS_ORIGINS, VITE_FRONTEND_ORIGIN
-from voice_store import list_voice_profiles, load_voice_profile, make_voice_id, save_voice_profile
+from settings import (
+    AI_WORKSPACE,
+    APP_NAME,
+    APP_VERSION,
+    EXTRA_CORS_ORIGINS,
+    FFPROBE_CANDIDATES,
+    MAX_BACKGROUND_DURATION_SECONDS,
+    MAX_TRAINING_AUDIO_DURATION_SECONDS,
+    MAX_TRAINING_UPLOAD_TOTAL_BYTES,
+    MAX_UPLOAD_BYTES,
+    VITE_FRONTEND_ORIGIN,
+)
+from voice_store import delete_voice_profile, list_voice_profiles, load_voice_profile, make_voice_id, save_voice_profile
 from voice_training_runner import start_voice_training
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _find_ffprobe() -> str:
+    for candidate in FFPROBE_CANDIDATES:
+        try:
+            result = subprocess.run([candidate, "-version"], capture_output=True, timeout=5)
+            if result.returncode == 0:
+                return candidate
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+    return ""
+
+
+async def _stream_upload(file: UploadFile, destination: Path, limit: int) -> int:
+    total = 0
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("wb") as output:
+        while chunk := await file.read(1024 * 1024):
+            total += len(chunk)
+            if total > limit:
+                raise HTTPException(status_code=413, detail="上传文件超过大小限制。")
+            output.write(chunk)
+    return total
+
+
+def _probe_media(path: Path) -> dict:
+    ffprobe = _find_ffprobe()
+    if not ffprobe:
+        raise HTTPException(status_code=500, detail="缺少 ffprobe，无法校验上传文件。")
+    result = subprocess.run(
+        [
+            ffprobe, "-v", "error", "-show_entries",
+            "format=duration:stream=codec_type,codec_name,width,height",
+            "-of", "json", str(path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    if result.returncode != 0:
+        raise HTTPException(status_code=400, detail="文件无法被识别为有效的音视频。")
+    try:
+        data = json.loads(result.stdout)
+        duration = float((data.get("format") or {}).get("duration") or 0)
+        streams = data.get("streams") or []
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="无法读取上传文件的媒体信息。")
+    if duration <= 0:
+        raise HTTPException(status_code=400, detail="上传文件没有有效时长。")
+    return {"duration": duration, "streams": streams}
+
+
+def _require_video_media(path: Path, max_duration: float) -> dict:
+    media = _probe_media(path)
+    video = next((stream for stream in media["streams"] if stream.get("codec_type") == "video"), None)
+    if not video:
+        raise HTTPException(status_code=400, detail="请上传包含视频画面的文件。")
+    if media["duration"] > max_duration:
+        raise HTTPException(status_code=400, detail=f"视频时长不能超过 {int(max_duration // 60)} 分钟。")
+    if not video.get("width") or not video.get("height"):
+        raise HTTPException(status_code=400, detail="无法读取视频分辨率。")
+    return media
+
+
+def _require_audio_media(path: Path, max_duration: float) -> dict:
+    media = _probe_media(path)
+    if not any(stream.get("codec_type") == "audio" for stream in media["streams"]):
+        raise HTTPException(status_code=400, detail="文件中没有可用的声音轨道。")
+    if media["duration"] > max_duration:
+        raise HTTPException(status_code=400, detail="单个声音素材时长超过限制。")
+    return media
 
 
 @asynccontextmanager
@@ -63,7 +146,7 @@ app.add_middleware(
 
 
 def _with_live_progress(job: dict) -> dict:
-    if job.get("status") != "running":
+    if job.get("status") not in {"starting", "running", "collecting"}:
         return job
     live = get_cleanvideo_progress(job["job_id"])
     if not live:
@@ -223,6 +306,17 @@ def get_voice_log(voice_id: str):
     return {"voice_id": voice_id, "log": "\n".join(tail), "lines": len(tail)}
 
 
+@app.delete("/voices/{voice_id}")
+def delete_voice(voice_id: str):
+    profile = load_voice_profile(voice_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Voice not found: {voice_id}")
+    if profile.get("trainingStatus") in {"queued", "training", "training_requested"}:
+        raise HTTPException(status_code=409, detail="声音正在训练，请等待训练结束后再删除。")
+    delete_voice_profile(voice_id)
+    return {"success": True, "id": voice_id}
+
+
 @app.post("/voices/{voice_id}/retry")
 def retry_voice_training(voice_id: str):
     profile = load_voice_profile(voice_id)
@@ -266,6 +360,8 @@ async def train_voice(
     raw_dir.mkdir(parents=True, exist_ok=True)
 
     saved_files = []
+    total_bytes = 0
+    actual_minutes = 0.0
     for index, file in enumerate(files, 1):
         if not file.filename:
             continue
@@ -274,9 +370,18 @@ async def train_voice(
             raise HTTPException(status_code=400, detail=f"不支持的声音素材格式：{file.filename}")
         safe_name = f"{index:04d}_{Path(file.filename).name}"
         dst = raw_dir / safe_name
-        content = await file.read()
-        dst.write_bytes(content)
-        saved_files.append({"name": file.filename, "path": str(dst), "size": len(content)})
+        try:
+            size = await _stream_upload(file, dst, MAX_UPLOAD_BYTES)
+            media = _require_audio_media(dst, MAX_TRAINING_AUDIO_DURATION_SECONDS)
+        except HTTPException:
+            shutil.rmtree(voice_dir, ignore_errors=True)
+            raise
+        total_bytes += size
+        if total_bytes > MAX_TRAINING_UPLOAD_TOTAL_BYTES:
+            shutil.rmtree(voice_dir, ignore_errors=True)
+            raise HTTPException(status_code=413, detail="声音训练素材总大小超过限制。")
+        actual_minutes += media["duration"] / 60
+        saved_files.append({"name": file.filename, "path": str(dst), "size": size})
 
     if not saved_files:
         raise HTTPException(status_code=400, detail="没有收到可用的声音素材文件。")
@@ -289,7 +394,7 @@ async def train_voice(
         "style": style,
         "mode": "lora_finetune",
         "trainingStatus": "queued",
-        "audioMinutes": audio_minutes,
+        "audioMinutes": round(actual_minutes, 2),
         "audioScore": audio_score,
         "audioFiles": saved_files,
         "createdAt": datetime.now().isoformat(),
@@ -328,15 +433,15 @@ async def upload_background(file: UploadFile = File(...)):
 
     bg_id    = make_background_id(file.filename)
     dst_path = CUSTOM_DIR / f"{bg_id}.mp4"
-    tmp_path = CUSTOM_DIR / f"{bg_id}{suffix}"
+    tmp_path = CUSTOM_DIR / f"{bg_id}.upload{suffix}"
     CUSTOM_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
-        content = await file.read()
+        total_size = await _stream_upload(file, tmp_path, MAX_UPLOAD_BYTES)
+        _require_video_media(tmp_path, MAX_BACKGROUND_DURATION_SECONDS)
         if suffix == ".mp4":
-            dst_path.write_bytes(content)
+            tmp_path.replace(dst_path)
         else:
-            tmp_path.write_bytes(content)
             ffmpeg = _find_ffmpeg()
             if not ffmpeg:
                 raise HTTPException(status_code=500, detail="缺少视频转换组件，暂时无法保存该视频。")
@@ -369,9 +474,11 @@ async def upload_background(file: UploadFile = File(...)):
                 raise HTTPException(status_code=500, detail=f"视频转换失败：{detail}")
     except HTTPException:
         tmp_path.unlink(missing_ok=True)
+        dst_path.unlink(missing_ok=True)
         raise
     except Exception as e:
         tmp_path.unlink(missing_ok=True)
+        dst_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"保存视频失败：{e}")
 
     bg = {
@@ -390,7 +497,7 @@ async def upload_background(file: UploadFile = File(...)):
     save_backgrounds(bgs)
     generate_thumbnail(bg)
 
-    logger.info("Uploaded background %s (%d bytes)", bg_id, len(content))
+    logger.info("Uploaded background %s (%d bytes)", bg_id, total_size)
     return bg
 
 
@@ -519,15 +626,21 @@ def create_job_endpoint(req: JobCreateRequest):
         raise HTTPException(
             status_code=400,
             detail=f"output_type '{req.output_type}' is not supported. Use 'clean_video' or 'voice_only'.",
-        )
+    )
     try:
         voice_profile = load_voice_profile(req.voice_id) if req.voice_id else None
+        if req.voice_id and req.voice_id.startswith("voice_") and voice_profile is None:
+            raise HTTPException(status_code=404, detail="这个声音人物不存在，请先在‘素材与训练’中创建。")
         if voice_profile:
+            if voice_profile.get("trainingStatus") != "finished":
+                raise HTTPException(status_code=409, detail="这个声音还在训练中，完成后才能创建任务。")
             req.voice_checkpoint_path = voice_profile.get("checkpointPath")
             req.voice_reference_wav_path = voice_profile.get("referenceWavPath")
             req.voice_reference_text = voice_profile.get("referenceText", "")
             req.voice_training_status = voice_profile.get("trainingStatus")
         job = create_job(req)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create job: {e}")
     return job
@@ -553,7 +666,7 @@ def run_job(job_id: str):
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
     status = job.get("status")
-    if status == "running":
+    if status in {"starting", "running", "collecting"}:
         raise HTTPException(status_code=400, detail=f"Job {job_id} is already running.")
     if status == "finished":
         raise HTTPException(
@@ -605,6 +718,7 @@ def delete_job_endpoint(job_id: str):
 
     job_dir = AI_WORKSPACE / "jobs" / job_id
     shutil.rmtree(job_dir, ignore_errors=True)
+    delete_job(job_id)
     logger.info("Deleted job %s", job_id)
     return {"success": True, "job_id": job_id}
 

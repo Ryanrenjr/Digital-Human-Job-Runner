@@ -9,6 +9,7 @@ This project was forked from a client-specific internal runner and has been gene
 - Create video or voice-only jobs from title, subtitle, keywords, and script
 - Select or upload avatar/background MP4 assets
 - Queue jobs and run them one at a time
+- Keep each job's inputs, temporary work files, outputs, and logs isolated
 - Track generation progress and view logs
 - Preview and download generated MP4/WAV outputs
 - Use a local Ollama model to format scripts and generate subtitle lines
@@ -68,12 +69,17 @@ The backend reads `DHJR_*` environment variables. Important settings:
 - `DHJR_WORKSPACE`: root workspace containing `app/`, `scripts/`, `jobs/`, `assets/`, and model projects
 - `DHJR_DEFAULT_VOICE_ID`: default voice profile stored on each job
 - `DHJR_SUPPORTED_VOICE_IDS`: comma-separated voice IDs accepted by the job preparer
-- `DHJR_DEFAULT_AVATAR_VIDEO`: the avatar video path consumed by the current LatentSync pipeline
+- `DHJR_ENGINE_WORKSPACE`: read-only engine/model workspace used by the pipeline
+- `DHJR_DATABASE_PATH`: SQLite database for job, voice, and queue metadata
 - `DHJR_WINDOWS_OUTPUT_DIR`: optional WSL-mounted Windows output folder
 - `DHJR_RUN_SCRIPT` and `DHJR_RUN_VOICE_SCRIPT`: pipeline entry scripts
 
 The frontend reads `VITE_API_BASE_URL`.
 
-## Current Status
+## Runtime isolation
 
-This is a generic local runner skeleton. The underlying VoxCPM and LatentSync scripts are still expected to exist under the configured workspace. The next product step is to make voice profiles and avatar pipeline inputs fully per-job instead of using shared runtime input/output folders.
+The engine workspace contains models and code only. A job runs from its own
+`jobs/<job_id>/input`, `jobs/<job_id>/work`, and `jobs/<job_id>/output`
+directories, so one job no longer clears or overwrites another job's media.
+The SQLite database is the metadata source; `job.json` and voice `profile.json`
+files remain as readable compatibility mirrors for existing tools.

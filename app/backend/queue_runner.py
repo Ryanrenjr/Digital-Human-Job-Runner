@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from database import get_queue_state, set_queue_state
 from job_store import list_jobs, save_job
 from runner import is_job_process_running, start_job
 from settings import AI_WORKSPACE, SHUTDOWN_EXE
@@ -26,6 +27,14 @@ class QueueRunner:
     # ── persistence ────────────────────────────────────────────────────────
 
     def _load_state(self) -> dict:
+        stored = get_queue_state()
+        if stored:
+            return {
+                "auto_run": False,
+                "paused": False,
+                "shutdown_after_complete": False,
+                **stored,
+            }
         if STATE_PATH.exists():
             try:
                 return json.loads(STATE_PATH.read_text(encoding="utf-8"))
@@ -34,18 +43,21 @@ class QueueRunner:
         return {"auto_run": False, "paused": False, "shutdown_after_complete": False}
 
     def _save_state(self) -> None:
+        set_queue_state(self._state)
         STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        STATE_PATH.write_text(
+        temp_path = STATE_PATH.with_suffix(".json.tmp")
+        temp_path.write_text(
             json.dumps(self._state, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
+        temp_path.replace(STATE_PATH)
 
     # ── startup recovery ───────────────────────────────────────────────────
 
     def recover_stale_jobs(self) -> None:
         """On startup, any job stuck in status=running with no live process → failed."""
         for job in list_jobs():
-            if job.get("status") != "running":
+            if job.get("status") not in {"starting", "running", "collecting"}:
                 continue
             job_id = job["job_id"]
             if not is_job_process_running(job_id):
@@ -106,9 +118,10 @@ class QueueRunner:
             s = j.get("status", "unknown")
             counts[s] = counts.get(s, 0) + 1
 
-        running_job = next((j for j in all_jobs if j.get("status") == "running"), None)
+        active = {"starting", "running", "collecting"}
+        running_job = next((j for j in all_jobs if j.get("status") in active), None)
         n_pending   = counts.get("pending", 0)
-        n_running   = counts.get("running", 0)
+        n_running   = sum(counts.get(state, 0) for state in active)
 
         if n_running > 0:
             status = "paused" if self.paused else "running"
@@ -139,7 +152,7 @@ class QueueRunner:
     def run_next_pending(self) -> Optional[str]:
         """Immediately start the next pending job. Returns job_id or None."""
         all_jobs = list_jobs()
-        if any(j.get("status") == "running" for j in all_jobs):
+        if any(j.get("status") in {"starting", "running", "collecting"} for j in all_jobs):
             return None
         pending = sorted(
             (j for j in all_jobs if j.get("status") == "pending"),
@@ -158,7 +171,7 @@ class QueueRunner:
             return
 
         all_jobs = list_jobs()
-        if any(j.get("status") == "running" for j in all_jobs):
+        if any(j.get("status") in {"starting", "running", "collecting"} for j in all_jobs):
             return
 
         pending = sorted(

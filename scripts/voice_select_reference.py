@@ -4,6 +4,8 @@ import os
 import re
 from pathlib import Path
 
+from voice_store import save_voice_profile
+
 
 PROFILE_JSON = Path(os.environ["PROFILE_JSON"])
 TRANSCRIPT_TSV = Path(os.environ["TRAIN_TRANSCRIPT_FINAL"])
@@ -61,7 +63,7 @@ profile["checkpointPath"] = CHECKPOINT
 profile["referenceWavPath"] = ref_wav
 profile["referenceText"] = ref_text
 profile["trainingError"] = None
-PROFILE_JSON.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
+save_voice_profile(profile)
 
 print("Selected reference wav:", ref_wav)
 print("Selected reference text:", ref_text)

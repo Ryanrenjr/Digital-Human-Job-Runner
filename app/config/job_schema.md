@@ -65,7 +65,8 @@ jobs/<job_id>/
 - Type: `string`
 - Description: selected avatar/background video id from `app/config/backgrounds.json`.
 
-The current LatentSync wrapper still copies the selected video to `DHJR_DEFAULT_AVATAR_VIDEO` for compatibility with the legacy pipeline. A later version should pass per-job avatar paths directly to the model runner.
+The LatentSync wrapper receives the selected avatar directly through the job's
+`input/avatar.mp4` path. It does not modify a shared avatar file.
 
 ### voice_id
 

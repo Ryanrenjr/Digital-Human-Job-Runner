@@ -66,3 +66,4 @@ secrets/
 # ── Runtime config state ──
 app/config/queue_state.json
 app/config/backgrounds.json
+app/config/dhjr.sqlite3*
