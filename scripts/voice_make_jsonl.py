@@ -2,6 +2,7 @@ import csv
 import json
 import os
 import random
+import re
 from pathlib import Path
 
 
@@ -10,6 +11,32 @@ TRAIN_JSONL = Path(os.environ["TRAIN_JSONL"])
 VAL_JSONL = Path(os.environ["VAL_JSONL"])
 
 rows = []
+
+
+def repetition_score(text: str) -> float:
+    compact = re.sub(r"\s+", "", text)
+    if len(compact) < 8:
+        return 0.0
+    repeated = 0
+    for size in (2, 3, 4, 5, 6):
+        seen = set()
+        for i in range(0, len(compact) - size + 1):
+            gram = compact[i:i + size]
+            if gram in seen:
+                repeated += size
+            seen.add(gram)
+    return repeated / max(1, len(compact))
+
+
+def is_clean_training_text(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    if len(compact) < 4 or len(compact) > 120:
+        return False
+    if repetition_score(compact) > 1.1:
+        return False
+    return True
+
+
 with IN_TSV.open(encoding="utf-8-sig") as f:
     reader = csv.reader(f, delimiter="\t")
     next(reader, None)
@@ -18,7 +45,7 @@ with IN_TSV.open(encoding="utf-8-sig") as f:
             continue
         audio = row[1].strip()
         text = row[2].strip()
-        if audio and text and Path(audio).exists() and len(text) >= 2:
+        if audio and text and Path(audio).exists() and is_clean_training_text(text):
             rows.append({"audio": audio, "text": text})
 
 if len(rows) < 4:

@@ -134,26 +134,19 @@ if [ ! -f "$CKPT/lora_weights.safetensors" ]; then
     fail_voice "训练完成但没有找到 lora_weights.safetensors。"
 fi
 
-REF_WAV=$(find "$CLIPS_DIR" -maxdepth 1 -type f -name '*.wav' | sort | head -1)
-REF_TEXT=$(tail -n +2 "$TRAIN_DIR/transcripts_final.tsv" | head -1 | cut -f3-)
+PROFILE_JSON="$PROFILE_JSON" TRAIN_TRANSCRIPT_FINAL="$TRAIN_DIR/transcripts_final.tsv" CKPT="$CKPT" python "$AI_WORKSPACE/scripts/voice_select_reference.py"
 
-PROFILE_JSON="$PROFILE_JSON" CKPT="$CKPT" REF_WAV="$REF_WAV" REF_TEXT="$REF_TEXT" python3 - <<'PYEOF'
+PROFILE_JSON="$PROFILE_JSON" python3 - <<'PYEOF'
 import json, os
 from datetime import datetime
 from pathlib import Path
 p = Path(os.environ["PROFILE_JSON"])
 j = json.loads(p.read_text(encoding="utf-8"))
-j["trainingStatus"] = "finished"
 j["trainingFinishedAt"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-j["checkpointPath"] = os.environ["CKPT"]
-j["referenceWavPath"] = os.environ["REF_WAV"]
-j["referenceText"] = os.environ.get("REF_TEXT", "")
-j["trainingError"] = None
 p.write_text(json.dumps(j, ensure_ascii=False, indent=2), encoding="utf-8")
 PYEOF
 
 echo "===================================="
 echo "Voice training finished"
 echo "checkpoint: $CKPT"
-echo "reference: $REF_WAV"
 echo "===================================="

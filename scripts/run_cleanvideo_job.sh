@@ -135,7 +135,7 @@ echo ""
 echo "===================================="
 echo "Step 3: Voice postprocess"
 echo "===================================="
-python postprocess_voxcpm_segments_v12.py
+echo "[INFO] Skipped legacy voice postprocess; dynamic voice generation already produced cleaned timing audio."
 
 # ============================================================
 echo ""

@@ -26,6 +26,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SEG_DIR.mkdir(parents=True, exist_ok=True)
 
 PAUSE_SECONDS = 0.06
+MAX_SEGMENT_CHARS = 54
+MAX_SEGMENT_SECONDS = 12.0
 
 
 def normalize_script(text: str) -> str:
@@ -38,44 +40,59 @@ def normalize_script(text: str) -> str:
 
 def split_script_for_voice(script: str) -> list[str]:
     text = normalize_script(script)
-    paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
-    sentences = []
-    for para in paragraphs:
-        parts = re.split(r"(?<=[。！？!?])", para)
-        for part in [x.strip() for x in parts if x.strip()]:
-            if len(part) <= 120:
-                sentences.append(part)
-            else:
-                sentences.extend([x.strip() for x in re.split(r"(?<=[，；：、,;:])", part) if x.strip()])
-
-    merged = []
-    buf = ""
-    for sent in sentences:
-        if not buf:
-            buf = sent
-        elif len(buf + sent) <= 210 or (len(buf) < 120 and len(buf + sent) <= 250):
-            buf += sent
-        else:
-            merged.append(buf)
-            buf = sent
-    if buf:
-        merged.append(buf)
+    chunks = []
+    for para in [p.strip() for p in text.split("\n") if p.strip()]:
+        chunks.extend(re.findall(r"[^。！？!?，,；;：:\n]+[。！？!?，,；;：:]?", para))
 
     final = []
-    for item in merged:
-        if len(item) <= 260:
-            final.append(item)
-            continue
-        buf = ""
-        for part in [x.strip() for x in re.split(r"(?<=[，；：、,;:])", item) if x.strip()]:
-            if not buf or len(buf + part) <= 210:
-                buf += part
-            else:
+    buf = ""
+    for chunk in [x.strip() for x in chunks if x.strip()]:
+        if len(chunk) > MAX_SEGMENT_CHARS:
+            if buf:
                 final.append(buf)
-                buf = part
-        if buf:
+                buf = ""
+            for start in range(0, len(chunk), MAX_SEGMENT_CHARS):
+                final.append(chunk[start:start + MAX_SEGMENT_CHARS].strip())
+            continue
+
+        if not buf:
+            buf = chunk
+        elif len(buf + chunk) <= MAX_SEGMENT_CHARS:
+            buf += chunk
+        else:
             final.append(buf)
+            buf = chunk
+
+        if re.search(r"[。！？!?]$", chunk) and len(buf) >= 18:
+            final.append(buf)
+            buf = ""
+
+    if buf:
+        final.append(buf)
     return [x.strip() for x in final if x.strip()]
+
+
+def estimate_max_duration(text: str) -> float:
+    return min(MAX_SEGMENT_SECONDS, max(2.8, estimate_target_duration(text) * 1.35))
+
+
+def estimate_target_duration(text: str) -> float:
+    compact = re.sub(r"\s+", "", text)
+    chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", compact))
+    ascii_words = len(re.findall(r"[A-Za-z0-9]+", compact))
+    return max(2.6, chinese_chars / 6.0 + ascii_words * 0.28 + 1.0)
+
+
+def limit_wav_duration(wav, sample_rate: int, max_seconds: float):
+    max_samples = int(sample_rate * max_seconds)
+    if len(wav) <= max_samples:
+        return wav
+    trimmed = wav[:max_samples].copy()
+    fade_samples = min(int(sample_rate * 0.06), len(trimmed))
+    if fade_samples > 0:
+        for i in range(fade_samples):
+            trimmed[-fade_samples + i] *= i / fade_samples
+    return trimmed
 
 
 def get_duration(path: Path) -> float:
@@ -114,7 +131,7 @@ def concat_audio(segment_paths: list[Path], output_path: Path, pause_seconds: fl
     concat_list = OUTPUT_DIR / "voxcpm_concat_list.txt"
     pause_path = OUTPUT_DIR / "pause.wav"
     subprocess.run([
-        "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+        "ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono",
         "-t", str(pause_seconds), str(pause_path),
     ], check=True)
     lines = []
@@ -125,8 +142,45 @@ def concat_audio(segment_paths: list[Path], output_path: Path, pause_seconds: fl
     concat_list.write_text("".join(lines), encoding="utf-8")
     subprocess.run([
         "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list),
-        "-ar", "48000", "-ac", "1", str(output_path),
+        "-ar", "16000", "-ac", "1", str(output_path),
     ], check=True)
+
+
+def clean_generated_audio(input_path: Path, output_path: Path):
+    subprocess.run([
+        "ffmpeg", "-y", "-i", str(input_path),
+        "-af", "highpass=f=70,lowpass=f=7600,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
+        "-ac", "1", "-ar", "16000", str(output_path),
+    ], check=True)
+
+
+def atempo_chain(speed: float) -> str:
+    parts = []
+    remaining = speed
+    while remaining > 2.0:
+        parts.append("atempo=2.0")
+        remaining /= 2.0
+    while remaining < 0.5:
+        parts.append("atempo=0.5")
+        remaining /= 0.5
+    parts.append(f"atempo={remaining:.4f}")
+    return ",".join(parts)
+
+
+def fit_audio_duration(path: Path, target_seconds: float) -> float:
+    dur = get_duration(path)
+    if dur <= target_seconds * 1.12:
+        return dur
+    speed = min(1.55, dur / target_seconds)
+    tmp = path.with_suffix(".speed.wav")
+    print(f"[INFO] Segment is slower than target; speed={speed:.2f}, target={target_seconds:.2f}s")
+    subprocess.run([
+        "ffmpeg", "-y", "-i", str(path),
+        "-af", f"{atempo_chain(speed)},loudnorm=I=-16:TP=-1.5:LRA=11",
+        "-ac", "1", "-ar", "16000", str(tmp),
+    ], check=True)
+    tmp.replace(path)
+    return get_duration(path)
 
 
 def main():
@@ -182,6 +236,7 @@ def main():
 
     for i, text in enumerate(segments, 1):
         out_path = SEG_DIR / f"segment_{i:03d}.wav"
+        raw_path = SEG_DIR / f"segment_{i:03d}.raw.wav"
         print(f"\nGenerating segment {i}/{len(segments)}")
         print(text)
         wav = model.generate(
@@ -192,8 +247,13 @@ def main():
             inference_timesteps=25,
             denoise=False,
         )
-        sf.write(out_path, wav, model.tts_model.sample_rate)
-        dur = get_duration(out_path)
+        max_duration = estimate_max_duration(text)
+        limited_wav = limit_wav_duration(wav, model.tts_model.sample_rate, max_duration)
+        if len(limited_wav) < len(wav):
+            print(f"[WARN] Segment exceeded expected duration; trimmed to {max_duration:.2f}s")
+        sf.write(raw_path, limited_wav, model.tts_model.sample_rate)
+        clean_generated_audio(raw_path, out_path)
+        dur = fit_audio_duration(out_path, estimate_target_duration(text))
         start = current
         end = current + dur
         segment_paths.append(out_path)
@@ -238,7 +298,7 @@ def main():
     voice_latent = OUTPUT_DIR / "voice_for_latentsync.wav"
     subprocess.run([
         "ffmpeg", "-y", "-i", str(voice_path),
-        "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
+        "-af", "highpass=f=70,lowpass=f=7600,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
         "-ac", "1", "-ar", "16000", str(voice_latent),
     ], check=True)
 
