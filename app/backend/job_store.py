@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -53,16 +55,7 @@ def migrate_legacy_jobs() -> None:
 
 
 def load_job(job_id: str) -> Optional[dict]:
-    migrate_legacy_jobs()
-    job = get_job(job_id)
-    if job is not None:
-        return job
-    p = _job_path(job_id)
-    if not p.exists():
-        return None
-    job = json.loads(p.read_text(encoding="utf-8"))
-    upsert_job(job)
-    return job
+    return get_job(job_id)
 
 
 def save_job(job: dict) -> None:
@@ -72,7 +65,6 @@ def save_job(job: dict) -> None:
 
 
 def list_jobs() -> list:
-    migrate_legacy_jobs()
     return db_list_jobs()
 
 
@@ -97,12 +89,14 @@ def _build_paths(job_id: str) -> dict:
         "workspace_dir": str(job_dir / "workspace"),
         "work_dir": str(job_dir / "work"),
         "avatar_video": str(job_dir / "input/avatar.mp4"),
+        "background_snapshot": str(job_dir / "input/avatar.mp4"),
         "log_dir": str(job_dir / "logs"),
         "title_txt": str(job_dir / "input/title.txt"),
         "subtitle_txt": str(job_dir / "input/subtitle.txt"),
         "keywords_txt": str(job_dir / "input/keywords.txt"),
         "script_txt": str(job_dir / "input/script.txt"),
         "voice_profile_json": str(job_dir / "input/voice_profile.json"),
+        "voice_reference_snapshot": str(job_dir / "input/voice_reference.wav"),
         "voice_prompt_txt": str(job_dir / "input/voice_prompt.txt"),
         "voice_wav": str(job_dir / "output/voice.wav"),
         "voice_for_latentsync_wav": str(job_dir / "output/voice_for_latentsync.wav"),
@@ -119,6 +113,34 @@ def _normalize_keywords(raw) -> list:
     if isinstance(raw, list):
         return [str(k).strip() for k in raw if str(k).strip()]
     return [k.strip() for k in re.split(r"[,\n、，]", str(raw)) if k.strip()]
+
+
+def _host_path(value: str | Path) -> Path:
+    raw = str(value or "")
+    if raw.startswith("/mnt/") and len(raw) > 7 and raw[6] == "/":
+        drive = raw[5].upper()
+        rest = raw[7:].replace("/", "\\")
+        return Path(f"{drive}:\\{rest}")
+    return Path(raw)
+
+
+def _wsl_path(value: str | Path) -> str:
+    raw = str(value or "")
+    if os.name == "nt" and len(raw) >= 3 and raw[1] == ":":
+        drive = raw[0].lower()
+        return f"/mnt/{drive}/{raw[3:].replace(chr(92), '/') }"
+    return raw
+
+
+def _snapshot_file(source: str | Path, destination: Path) -> None:
+    src = _host_path(source)
+    if not src.exists() or not src.is_file():
+        raise FileNotFoundError(f"依赖文件不存在：{src}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(src, destination)
+    except (AttributeError, FileExistsError, OSError):
+        shutil.copy2(src, destination)
 
 
 def create_job(req: JobCreateRequest) -> dict:
@@ -145,6 +167,7 @@ def create_job(req: JobCreateRequest) -> dict:
         "voice_checkpoint_path": req.voice_checkpoint_path,
         "voice_reference_wav_path": req.voice_reference_wav_path,
         "voice_reference_text": req.voice_reference_text or "",
+        "voice_revision": req.voice_revision,
         "voice_training_status": req.voice_training_status,
         "output_type": req.output_type,
         "shutdown_after_done": req.shutdown_after_done,
@@ -161,6 +184,20 @@ def create_job(req: JobCreateRequest) -> dict:
         },
         "paths": _build_paths(job_id),
     }
+
+    # Snapshot dependencies before the job becomes visible to the queue.
+    if job["output_type"] == "clean_video":
+        from background_utils import get_background_by_id
+        background = get_background_by_id(job["background_id"])
+        if not background:
+            raise FileNotFoundError(f"背景素材不存在：{job['background_id']}")
+        _snapshot_file(background.get("path", ""), Path(job["paths"]["background_snapshot"]))
+
+    reference = job.get("voice_reference_wav_path")
+    if reference:
+        snapshot = Path(job["paths"]["voice_reference_snapshot"])
+        _snapshot_file(reference, snapshot)
+        job["voice_reference_wav_path"] = _wsl_path(snapshot)
 
     save_job(job)
 

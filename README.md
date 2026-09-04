@@ -71,6 +71,8 @@ The backend reads `DHJR_*` environment variables. Important settings:
 - `DHJR_SUPPORTED_VOICE_IDS`: comma-separated voice IDs accepted by the job preparer
 - `DHJR_ENGINE_WORKSPACE`: read-only engine/model workspace used by the pipeline
 - `DHJR_DATABASE_PATH`: SQLite database for job, voice, and queue metadata
+- `DHJR_CONDA_EXE`: Conda, Miniforge, or Micromamba executable available to WSL
+- `DHJR_VOXCPM_ENV` and `DHJR_LATENTSYNC_ENV`: model environment names
 - `DHJR_WINDOWS_OUTPUT_DIR`: optional WSL-mounted Windows output folder
 - `DHJR_RUN_SCRIPT` and `DHJR_RUN_VOICE_SCRIPT`: pipeline entry scripts
 
@@ -83,3 +85,9 @@ The engine workspace contains models and code only. A job runs from its own
 directories, so one job no longer clears or overwrites another job's media.
 The SQLite database is the metadata source; `job.json` and voice `profile.json`
 files remain as readable compatibility mirrors for existing tools.
+
+When a job is created, its avatar video and voice reference audio are snapshotted
+inside the job input directory. Removing a later global asset therefore cannot
+break a queued job. Legacy JSON mirrors are migrated once during backend startup;
+normal reads are SQLite-only. The environment status is available at
+`GET /system/readiness` and is also shown in the task page.

@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from pathlib import PureWindowsPath
 
-from settings import AI_WORKSPACE
+from settings import AI_WORKSPACE, CONDA_EXE, ENGINE_WORKSPACE, VOXCPM_ENV
 from voice_store import load_voice_profile, save_voice_profile
 
 
@@ -64,15 +64,22 @@ def start_voice_training(voice_id: str) -> int:
     if sys.platform.startswith("win"):
         app_workspace = _to_wsl_path(AI_WORKSPACE)
         script_path = _to_wsl_path(script)
-        engine_workspace = os.getenv("DHJR_ENGINE_WORKSPACE", "")
-        engine_expr = shlex.quote(engine_workspace) if engine_workspace else "$HOME/AI-Workspace"
+        engine_workspace = os.getenv("DHJR_ENGINE_WORKSPACE", "").strip()
+        engine_expr = shlex.quote(_to_wsl_path(engine_workspace)) if engine_workspace else "$HOME/AI-Workspace"
         clean_script = f"/tmp/dhjr_train_{shlex.quote(voice_id)}_{script.name}"
+        database_expr = (
+            f"DHJR_DATABASE_PATH={shlex.quote(_to_wsl_path(os.environ['DHJR_DATABASE_PATH']))} "
+            if os.environ.get("DHJR_DATABASE_PATH") else ""
+        )
         command = (
             f"cd {shlex.quote(app_workspace)} && "
             f"tr -d '\\r' < {shlex.quote(script_path)} > {clean_script} && "
             f"chmod +x {clean_script} && "
             f"DHJR_WORKSPACE={shlex.quote(app_workspace)} "
             f"DHJR_ENGINE_WORKSPACE={engine_expr} "
+            f"DHJR_CONDA_EXE={shlex.quote(CONDA_EXE)} "
+            f"DHJR_VOXCPM_ENV={shlex.quote(VOXCPM_ENV)} "
+            f"{database_expr}"
             f"bash {clean_script} {shlex.quote(voice_id)}"
         )
         args = ["wsl", "bash", "-lc", command]

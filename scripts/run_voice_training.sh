@@ -74,8 +74,10 @@ fi
 
 echo ""
 echo "Step 2: Slice speech clips"
-source "$HOME/miniconda3/etc/profile.d/conda.sh"
-conda activate voxcpm
+CONDA_EXE="${DHJR_CONDA_EXE:-conda}"
+VOXCPM_ENV="${DHJR_VOXCPM_ENV:-voxcpm}"
+eval "$(\"$CONDA_EXE\" shell.bash hook)"
+conda activate "$VOXCPM_ENV"
 PYTHONPATH="$AI_WORKSPACE/app/backend:$OFFICIAL_VOXCPM/src:$PYTHONPATH" TRAIN_RAW_WAV_DIR="$RAW_WAV_DIR" TRAIN_CLIPS_DIR="$CLIPS_DIR" python "$AI_WORKSPACE/scripts/voice_slice_audio.py"
 
 echo ""

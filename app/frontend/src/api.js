@@ -18,6 +18,7 @@ async function request(method, path, body) {
 }
 
 export const getHealth      = ()        => request('GET',    '/health')
+export const getSystemReadiness = ()   => request('GET',    '/system/readiness')
 export const getBackgrounds = ()        => request('GET',    '/backgrounds')
 export const createJob      = (payload) => request('POST',   '/jobs', payload)
 export const getJobs        = ()        => request('GET',    '/jobs')

@@ -27,6 +27,13 @@ APP_VERSION = os.getenv("DHJR_APP_VERSION", "0.2.0")
 AI_WORKSPACE = Path(
     os.getenv("DHJR_WORKSPACE", str(Path.home() / "AI-Workspace"))
 ).expanduser()
+ENGINE_WORKSPACE = Path(
+    os.getenv("DHJR_ENGINE_WORKSPACE") or str(Path.home() / "AI-Workspace")
+).expanduser()
+
+CONDA_EXE = os.getenv("DHJR_CONDA_EXE", "conda")
+VOXCPM_ENV = os.getenv("DHJR_VOXCPM_ENV", "voxcpm")
+LATENTSYNC_ENV = os.getenv("DHJR_LATENTSYNC_ENV", "latentsync")
 
 INPUT_DIR = Path(os.getenv("DHJR_INPUT_DIR", str(AI_WORKSPACE / "jobs/_standalone/input"))).expanduser()
 OUTPUT_DIR = Path(os.getenv("DHJR_OUTPUT_DIR", str(AI_WORKSPACE / "jobs/_standalone/output"))).expanduser()
@@ -105,4 +112,7 @@ MAX_TRAINING_UPLOAD_TOTAL_BYTES = int(
 MAX_BACKGROUND_DURATION_SECONDS = float(os.getenv("DHJR_MAX_BACKGROUND_DURATION_SECONDS", "600"))
 MAX_TRAINING_AUDIO_DURATION_SECONDS = float(
     os.getenv("DHJR_MAX_TRAINING_AUDIO_DURATION_SECONDS", "7200")
+)
+MIN_FREE_DISK_BYTES = int(
+    os.getenv("DHJR_MIN_FREE_DISK_BYTES", str(10 * 1024 * 1024 * 1024))
 )

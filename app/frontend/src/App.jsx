@@ -5,6 +5,7 @@ import { JobQueue }           from './components/JobQueue'
 import { JobDetail }          from './components/JobDetail'
 import { QueueControlPanel }  from './components/QueueControlPanel'
 import { TrainingPage }       from './components/TrainingPage'
+import { SystemReadinessPanel } from './components/SystemReadinessPanel'
 import { translations }       from './translations'
 import * as api from './api'
 
@@ -56,6 +57,7 @@ export default function App() {
     () => localStorage.getItem('dhjr_language') || 'zh'
   )
   const [voiceProfiles,       setVoiceProfiles]       = useState(loadVoiceProfiles)
+  const [readiness,            setReadiness]           = useState(null)
 
   const t           = translations[language]
   const selectedJob = jobs.find(j => j.job_id === selectedJobId) || null
@@ -144,6 +146,11 @@ export default function App() {
     }
   }, [])
 
+  const loadReadiness = useCallback(async () => {
+    try { setReadiness(await api.getSystemReadiness()) }
+    catch (e) { console.warn('readiness:', e) }
+  }, [])
+
   const loadJobLog = useCallback(async (jobId) => {
     try   { const d = await api.getJobLog(jobId); setJobLog(d.log) }
     catch (e) { console.warn('log:', e) }
@@ -155,6 +162,12 @@ export default function App() {
     const timer = setInterval(checkHealth, 30_000)
     return () => clearInterval(timer)
   }, [checkHealth])
+
+  useEffect(() => {
+    loadReadiness()
+    const timer = setInterval(loadReadiness, 30_000)
+    return () => clearInterval(timer)
+  }, [loadReadiness])
 
   useEffect(() => { loadBackgrounds(); loadBackendVoiceProfiles() }, [loadBackgrounds, loadBackendVoiceProfiles])
 
@@ -388,6 +401,7 @@ export default function App() {
           </div>
 
           <div className="right-panel">
+            <SystemReadinessPanel readiness={readiness} />
             <QueueControlPanel
               status={queueStatus}
               loading={queueLoading}

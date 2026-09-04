@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +23,7 @@ from background_utils import (
     make_background_id,
     save_backgrounds,
 )
-from job_store import create_job, delete_job, list_jobs, load_job, save_job
+from job_store import create_job, delete_job, list_jobs, load_job, migrate_legacy_jobs, save_job
 from progress_utils import get_cleanvideo_progress
 from queue_runner import queue_runner
 from runner import JobStartConflict, is_job_process_running, kill_job_process, start_job
@@ -49,8 +50,16 @@ from settings import (
     MAX_UPLOAD_BYTES,
     VITE_FRONTEND_ORIGIN,
 )
-from voice_store import delete_voice_profile, list_voice_profiles, load_voice_profile, make_voice_id, save_voice_profile
+from voice_store import (
+    delete_voice_profile,
+    list_voice_profiles,
+    load_voice_profile,
+    make_voice_id,
+    migrate_legacy_voice_profiles,
+    save_voice_profile,
+)
 from voice_training_runner import start_voice_training
+from system_readiness import get_readiness
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -129,6 +138,9 @@ def _require_audio_media(path: Path, max_duration: float) -> dict:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # Legacy JSON mirrors are imported once before all DB-only request paths start.
+    migrate_legacy_jobs()
+    migrate_legacy_voice_profiles()
     queue_runner.recover_stale_jobs()
     queue_runner.start_worker()
     yield
@@ -144,6 +156,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/system/readiness")
+def system_readiness():
+    return get_readiness()
 
 
 def _with_live_progress(job: dict) -> dict:
@@ -314,6 +331,17 @@ def delete_voice(voice_id: str):
         raise HTTPException(status_code=404, detail=f"Voice not found: {voice_id}")
     if profile.get("trainingStatus") in {"queued", "training", "training_requested"}:
         raise HTTPException(status_code=409, detail="声音正在训练，请等待训练结束后再删除。")
+    referenced = [
+        job.get("job_id")
+        for job in list_jobs()
+        if job.get("voice_id") == voice_id
+        and job.get("status") in (ACTIVE_STATUSES | {"pending"})
+    ]
+    if referenced:
+        raise HTTPException(
+            status_code=409,
+            detail=f"声音正在被排队任务使用，请先处理任务：{referenced[0]}",
+        )
     delete_voice_profile(voice_id)
     return {"success": True, "id": voice_id}
 
@@ -405,6 +433,7 @@ async def train_voice(
         "referenceWavPath": None,
         "referenceText": "",
         "trainingError": None,
+        "revision": uuid.uuid4().hex,
     }
     save_voice_profile(profile)
 
@@ -639,6 +668,7 @@ def create_job_endpoint(req: JobCreateRequest):
             req.voice_reference_wav_path = voice_profile.get("referenceWavPath")
             req.voice_reference_text = voice_profile.get("referenceText", "")
             req.voice_training_status = voice_profile.get("trainingStatus")
+            req.voice_revision = voice_profile.get("revision")
         job = create_job(req)
     except HTTPException:
         raise

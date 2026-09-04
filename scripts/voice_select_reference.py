@@ -2,6 +2,7 @@ import csv
 import json
 import os
 import re
+import uuid
 from pathlib import Path
 
 from voice_store import save_voice_profile
@@ -63,6 +64,7 @@ profile["checkpointPath"] = CHECKPOINT
 profile["referenceWavPath"] = ref_wav
 profile["referenceText"] = ref_text
 profile["trainingError"] = None
+profile["revision"] = uuid.uuid4().hex
 save_voice_profile(profile)
 
 print("Selected reference wav:", ref_wav)

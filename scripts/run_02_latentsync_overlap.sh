@@ -14,8 +14,10 @@ AVATAR_VIDEO="${DHJR_AVATAR_VIDEO:-$ENGINE_WORKSPACE/VideoRefs/default/avatar.mp
 
 cd "$LATENTSYNC_PROJECT"
 
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate latentsync
+CONDA_EXE="${DHJR_CONDA_EXE:-conda}"
+LATENTSYNC_ENV="${DHJR_LATENTSYNC_ENV:-latentsync}"
+eval "$(\"$CONDA_EXE\" shell.bash hook)"
+conda activate "$LATENTSYNC_ENV"
 
 FPS=25
 CORE_SECONDS=6

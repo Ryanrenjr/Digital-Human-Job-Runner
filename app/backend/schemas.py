@@ -17,6 +17,7 @@ class JobCreateRequest(BaseModel):
     voice_checkpoint_path: Optional[str] = None
     voice_reference_wav_path: Optional[str] = None
     voice_reference_text: Optional[str] = None
+    voice_revision: Optional[str] = None
     voice_training_status: Optional[str] = None
     output_type: str = "clean_video"
     shutdown_after_done: bool = False

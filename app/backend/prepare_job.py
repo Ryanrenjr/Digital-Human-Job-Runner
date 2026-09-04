@@ -4,8 +4,8 @@ prepare_job.py — Digital Human Job Runner
 Usage: python prepare_job.py JOB_ID
 """
 
-import json
 import shutil
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +17,7 @@ from settings import (
     SUPPORTED_VOICE_IDS,
     WINDOWS_OUTPUT_DIR,
 )
-from job_store import save_job
+from job_store import load_job, save_job
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -30,14 +30,6 @@ def now_iso() -> str:
 
 def now_stamp() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
-
-
-def load_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def save_json(path: Path, data: dict) -> None:
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def host_path(path_value: str) -> Path:
@@ -56,20 +48,19 @@ def host_path(path_value: str) -> Path:
     return Path(raw)
 
 
-def fail_job(job_path: Path | None, msg: str) -> None:
+def fail_job(job: dict | None, msg: str) -> None:
     print(f"[ERROR] {msg}", file=sys.stderr)
-    if job_path and job_path.exists():
+    if job:
         try:
-            job = load_json(job_path)
             job["status"] = "failed"
             job["error_message"] = msg
             job.setdefault("progress", {})
             job["progress"]["stage"] = "failed"
             job["progress"]["message"] = msg
             save_job(job)
-            print(f"[INFO] job.json updated: status=failed")
+            print("[INFO] SQLite job state updated: status=failed")
         except Exception as e:
-            print(f"[WARN] Could not update job.json after failure: {e}", file=sys.stderr)
+            print(f"[WARN] Could not update SQLite job state after failure: {e}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -86,7 +77,7 @@ def validate_job(job: dict, job_id: str) -> None:
 
     if job["job_id"] != job_id:
         raise ValueError(
-            f"job_id mismatch: job.json has '{job['job_id']}', expected '{job_id}'"
+            f"job_id mismatch: database has '{job['job_id']}', expected '{job_id}'"
         )
 
     status = job.get("status", "")
@@ -223,12 +214,14 @@ def build_paths(job_id: str, output_type: str = "clean_video") -> dict:
         "workspace_dir": str(job_dir / "workspace"),
         "work_dir": str(job_dir / "work"),
         "avatar_video": str(job_dir / "input/avatar.mp4"),
+        "background_snapshot": str(job_dir / "input/avatar.mp4"),
         "log_dir": str(job_dir / "logs"),
         "title_txt": str(job_dir / "input/title.txt"),
         "subtitle_txt": str(job_dir / "input/subtitle.txt"),
         "keywords_txt": str(job_dir / "input/keywords.txt"),
         "script_txt": str(job_dir / "input/script.txt"),
         "voice_profile_json": str(job_dir / "input/voice_profile.json"),
+        "voice_reference_snapshot": str(job_dir / "input/voice_reference.wav"),
         "voice_prompt_txt": str(job_dir / "input/voice_prompt.txt"),
         "voice_wav": str(job_dir / "output/voice.wav"),
         "voice_for_latentsync_wav": str(job_dir / "output/voice_for_latentsync.wav"),
@@ -251,7 +244,7 @@ def main() -> None:
         sys.exit(1)
 
     job_id = sys.argv[1]
-    job_path = JOBS_DIR / job_id / "job.json"
+    job_path = JOBS_DIR / job_id
 
     print(f"[INFO] ========================================")
     print(f"[INFO] prepare_job.py — Digital Human Job Runner")
@@ -259,20 +252,16 @@ def main() -> None:
     print(f"[INFO] Job    : {job_path}")
     print(f"[INFO] ========================================")
 
-    if not job_path.exists():
-        fail_job(None, f"job.json not found: {job_path}")
-
-    try:
-        job = load_json(job_path)
-    except Exception as e:
-        fail_job(None, f"Failed to parse job.json: {e}")
+    job = load_job(job_id)
+    if job is None:
+        fail_job(None, f"SQLite 中找不到任务：{job_id}")
 
     # --- Validate ---
     print(f"[INFO] Validating job fields...")
     try:
         validate_job(job, job_id)
     except ValueError as e:
-        fail_job(job_path, str(e))
+        fail_job(job, str(e))
 
     print(f"[INFO] Validation passed.")
     print(f"[INFO]   title        : {job['title']}")
@@ -291,11 +280,16 @@ def main() -> None:
 
     # --- Resolve background without touching any shared engine asset ---
     if output_type == "clean_video":
-        try:
-            bg_src = resolve_background(job["background_id"])
-        except (FileNotFoundError, ValueError) as e:
-            fail_job(job_path, str(e))
-        print(f"[INFO] Background resolved: {bg_src}")
+        snapshot = Path(job.get("paths", {}).get("background_snapshot", ""))
+        if snapshot.exists():
+            bg_src = snapshot
+            print(f"[INFO] Background snapshot found: {bg_src}")
+        else:
+            try:
+                bg_src = resolve_background(job["background_id"])
+            except (FileNotFoundError, ValueError) as e:
+                fail_job(job, str(e))
+            print(f"[INFO] Legacy background resolved: {bg_src}")
     else:
         bg_src = None
         print(f"[INFO] voice_only — skipping background switch")
@@ -311,22 +305,24 @@ def main() -> None:
     try:
         write_input_files(job, job_dir / "input")
     except Exception as e:
-        fail_job(job_path, f"Failed to write input files: {e}")
+        fail_job(job, f"Failed to write input files: {e}")
 
     if output_type == "clean_video":
-        print(f"[INFO] Copying background into this job workspace: {job['background_id']}")
-        try:
-            shutil.copy2(bg_src, job_dir / "input/avatar.mp4")
-            print(f"[INFO] Avatar video: {job_dir / 'input/avatar.mp4'}")
-        except Exception as e:
-            fail_job(job_path, f"Failed to prepare avatar video: {e}")
+        avatar_path = job_dir / "input/avatar.mp4"
+        if not avatar_path.exists():
+            print(f"[INFO] Copying legacy background into this job workspace: {job['background_id']}")
+            try:
+                shutil.copy2(bg_src, avatar_path)
+            except Exception as e:
+                fail_job(job, f"Failed to prepare avatar video: {e}")
+        print(f"[INFO] Avatar video: {avatar_path}")
 
     # --- Clean only this job's previous outputs ---
     print(f"[INFO] Cleaning this job's previous output files...")
     try:
         clean_job_outputs(job_dir / "output")
     except Exception as e:
-        fail_job(job_path, f"Failed to clean old outputs: {e}")
+        fail_job(job, f"Failed to clean old outputs: {e}")
 
     # --- Update job.json ---
     print(f"[INFO] Updating job.json...")
@@ -344,7 +340,7 @@ def main() -> None:
         job["paths"] = build_paths(job_id, output_type)
         save_job(job)
     except Exception as e:
-        fail_job(job_path, f"Failed to update job.json: {e}")
+        fail_job(job, f"Failed to update SQLite job state: {e}")
 
     print(f"[INFO] ========================================")
     print(f"[INFO] prepare_job.py DONE")

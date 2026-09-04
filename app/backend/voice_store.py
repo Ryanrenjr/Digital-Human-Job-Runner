@@ -1,5 +1,6 @@
 import json
 import re
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -10,6 +11,7 @@ from settings import AI_WORKSPACE
 
 
 VOICES_DIR = AI_WORKSPACE / "voices"
+logger = logging.getLogger(__name__)
 
 
 def now_iso() -> str:
@@ -26,20 +28,27 @@ def make_voice_id(name: str) -> str:
     return f"voice_{stamp}_{slugify(name)}"
 
 
+def migrate_legacy_voice_profiles() -> None:
+    """Import legacy profile mirrors during application startup only."""
+    VOICES_DIR.mkdir(parents=True, exist_ok=True)
+    known = {profile.get("id") for profile in db_list_voices()}
+    for path in VOICES_DIR.glob("*/profile.json"):
+        try:
+            profile = json.loads(path.read_text(encoding="utf-8"))
+            voice_id = profile.get("id")
+            if voice_id and voice_id not in known:
+                upsert_voice(profile)
+                known.add(voice_id)
+        except Exception as exc:
+            logger.warning("Skipping legacy voice profile %s: %s", path, exc)
+
+
 def profile_path(voice_id: str) -> Path:
     return VOICES_DIR / voice_id / "profile.json"
 
 
 def load_voice_profile(voice_id: str) -> Optional[dict]:
-    profile = get_voice(voice_id)
-    if profile is not None:
-        return profile
-    path = profile_path(voice_id)
-    if not path.exists():
-        return None
-    profile = json.loads(path.read_text(encoding="utf-8"))
-    upsert_voice(profile)
-    return profile
+    return get_voice(voice_id)
 
 
 def save_voice_profile(profile: dict) -> dict:
@@ -54,16 +63,7 @@ def save_voice_profile(profile: dict) -> dict:
 
 
 def list_voice_profiles() -> list[dict]:
-    profiles = {profile.get("id"): profile for profile in db_list_voices()}
-    for path in VOICES_DIR.glob("*/profile.json"):
-        try:
-            profile = json.loads(path.read_text(encoding="utf-8"))
-            if profile.get("id") not in profiles:
-                upsert_voice(profile)
-                profiles[profile.get("id")] = profile
-        except Exception:
-            continue
-    return sorted(profiles.values(), key=lambda item: item.get("createdAt", ""), reverse=True)
+    return sorted(db_list_voices(), key=lambda item: item.get("createdAt", ""), reverse=True)
 
 
 def delete_voice_profile(voice_id: str) -> None:

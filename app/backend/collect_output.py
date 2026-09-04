@@ -4,48 +4,38 @@ collect_output.py — Digital Human Job Runner
 Usage: python collect_output.py JOB_ID
 """
 
-import json
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
 from settings import JOBS_DIR, WINDOWS_OUTPUT_DIR
-from job_store import save_job
+from job_store import load_job, save_job
 
 
 def now_iso() -> str:
     return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def load_json(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def save_json(path: Path, data: dict) -> None:
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def fail_job(job_path: Path | None, msg: str) -> None:
+def fail_job(job: dict | None, msg: str) -> None:
     print(f"[ERROR] {msg}", file=sys.stderr)
-    if job_path and job_path.exists():
+    if job:
         try:
-            job = load_json(job_path)
             job["status"] = "failed"
             job["error_message"] = msg
             job.setdefault("progress", {})
             job["progress"]["stage"] = "failed"
             job["progress"]["message"] = msg
             save_job(job)
-            print(f"[INFO] job.json updated: status=failed")
+            print("[INFO] SQLite job state updated: status=failed")
         except Exception as e:
-            print(f"[WARN] Could not update job.json after failure: {e}", file=sys.stderr)
+            print(f"[WARN] Could not update SQLite job state after failure: {e}", file=sys.stderr)
     sys.exit(1)
 
 
 def validate_job(job: dict, job_id: str) -> None:
     if job.get("job_id") != job_id:
         raise ValueError(
-            f"job_id mismatch: job.json has '{job.get('job_id')}', expected '{job_id}'"
+            f"job_id mismatch: database has '{job.get('job_id')}', expected '{job_id}'"
         )
     if job.get("output_type") != "clean_video":
         raise ValueError(
@@ -84,7 +74,7 @@ def main() -> None:
         sys.exit(1)
 
     job_id = sys.argv[1]
-    job_path = JOBS_DIR / job_id / "job.json"
+    job_path = JOBS_DIR / job_id
 
     print(f"[INFO] ========================================")
     print(f"[INFO] collect_output.py — Digital Human Job Runner")
@@ -92,24 +82,20 @@ def main() -> None:
     print(f"[INFO] Job    : {job_path}")
     print(f"[INFO] ========================================")
 
-    if not job_path.exists():
-        fail_job(None, f"job.json not found: {job_path}")
-
-    try:
-        job = load_json(job_path)
-    except Exception as e:
-        fail_job(None, f"Failed to parse job.json: {e}")
+    job = load_job(job_id)
+    if job is None:
+        fail_job(None, f"SQLite 中找不到任务：{job_id}")
 
     try:
         validate_job(job, job_id)
     except ValueError as e:
-        fail_job(job_path, str(e))
+        fail_job(job, str(e))
 
     # --- Check clean_video.mp4 exists ---
     job_output_dir = JOBS_DIR / job_id / "output"
     clean_video_src = job_output_dir / "clean_video.mp4"
     if not clean_video_src.exists():
-        fail_job(job_path, f"clean_video.mp4 not found: {clean_video_src}")
+        fail_job(job, f"clean_video.mp4 not found: {clean_video_src}")
 
     print(f"[INFO] clean_video.mp4 found: {clean_video_src}")
 
@@ -128,14 +114,14 @@ def main() -> None:
     try:
         copy_audio_files(job_id)
     except Exception as e:
-        fail_job(job_path, f"Failed to copy audio files: {e}")
+        fail_job(job, f"Failed to copy audio files: {e}")
 
     # --- Copy to Windows Desktop ---
     print(f"[INFO] Copying to Windows Desktop...")
     try:
         windows_dst = copy_to_windows_desktop(job_id, job_clean_video)
     except Exception as e:
-        fail_job(job_path, f"Failed to copy to Windows Desktop: {e}")
+        fail_job(job, f"Failed to copy to Windows Desktop: {e}")
 
     # --- Update job.json ---
     print(f"[INFO] Updating job.json...")
@@ -159,7 +145,7 @@ def main() -> None:
 
         save_job(job)
     except Exception as e:
-        fail_job(job_path, f"Failed to update job.json: {e}")
+        fail_job(job, f"Failed to update SQLite job state: {e}")
 
     print(f"[INFO] ========================================")
     print(f"[INFO] collect_output.py DONE")

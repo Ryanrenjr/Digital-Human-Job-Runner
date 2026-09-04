@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 import tempfile
 import unittest
@@ -70,6 +71,28 @@ class StorageTests(unittest.TestCase):
         self.assertIn("/jobs/job-a/work", command)
         self.assertIn("DHJR_PIPELINE_SCRIPTS_DIR=", command)
         self.assertNotIn("DigitalHumanOutput", command)
+
+    def test_clean_video_job_snapshots_background(self):
+        background = TEST_ROOT / "assets" / "avatar.mp4"
+        background.parent.mkdir(parents=True, exist_ok=True)
+        background.write_bytes(b"background-data")
+        config = TEST_ROOT / "app" / "config" / "backgrounds.json"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(json.dumps([{
+            "id": "background-test",
+            "type": "custom",
+            "path": str(background),
+            "thumbnail_path": str(TEST_ROOT / "thumb.jpg"),
+        }]), encoding="utf-8")
+
+        request = self.make_request()
+        request.output_type = "clean_video"
+        job = create_job(request)
+        snapshot = Path(job["paths"]["background_snapshot"])
+        self.assertEqual(snapshot.read_bytes(), b"background-data")
+        background.unlink()
+        self.assertTrue(snapshot.exists())
+        delete_job(job["job_id"])
 
 
 if __name__ == "__main__":

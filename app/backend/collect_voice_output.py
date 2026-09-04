@@ -4,32 +4,22 @@ collect_voice_output.py — Voice-only job output collector
 Usage: python collect_voice_output.py JOB_ID
 """
 
-import json
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
 from settings import JOBS_DIR, WINDOWS_OUTPUT_DIR
-from job_store import save_job
+from job_store import load_job, save_job
 
 
 def now_iso():
     return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def load_json(path):
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def save_json(path, data):
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def fail_job(job_path, msg):
+def fail_job(job, msg):
     print(f"[ERROR] {msg}", file=sys.stderr)
-    if job_path and job_path.exists():
+    if job:
         try:
-            job = load_json(job_path)
             job["status"] = "failed"
             job["error_message"] = msg
             job.setdefault("progress", {})
@@ -37,7 +27,7 @@ def fail_job(job_path, msg):
             job["progress"]["message"] = msg
             save_job(job)
         except Exception as e:
-            print(f"[WARN] Could not update job.json: {e}", file=sys.stderr)
+            print(f"[WARN] Could not update SQLite job state: {e}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -47,22 +37,18 @@ def main():
         sys.exit(1)
 
     job_id   = sys.argv[1]
-    job_path = JOBS_DIR / job_id / "job.json"
+    job_path = JOBS_DIR / job_id
 
     print(f"[INFO] collect_voice_output.py — job={job_id}")
 
-    if not job_path.exists():
-        fail_job(None, f"job.json not found: {job_path}")
-
-    try:
-        job = load_json(job_path)
-    except Exception as e:
-        fail_job(None, f"Failed to parse job.json: {e}")
+    job = load_job(job_id)
+    if job is None:
+        fail_job(None, f"SQLite 中找不到任务：{job_id}")
 
     job_output_dir = JOBS_DIR / job_id / "output"
     voice_src = job_output_dir / "voice.wav"
     if not voice_src.exists():
-        fail_job(job_path, f"voice.wav not found: {voice_src}")
+        fail_job(job, f"voice.wav not found: {voice_src}")
 
     job_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -106,7 +92,7 @@ def main():
         save_job(job)
         print(f"[INFO] job.json updated: status=finished")
     except Exception as e:
-        fail_job(job_path, f"Failed to update job.json: {e}")
+        fail_job(job, f"Failed to update SQLite job state: {e}")
 
     print(f"[INFO] Voice-only collection done: {job_id}")
 

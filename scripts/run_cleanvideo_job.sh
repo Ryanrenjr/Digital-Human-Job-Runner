@@ -12,7 +12,7 @@ fi
 
 JOB_ID="$1"
 JOB_DIR="$AI_WORKSPACE/jobs/$JOB_ID"
-JOB_JSON="$JOB_DIR/job.json"
+JOB_STATE_GET="$AI_WORKSPACE/app/backend/job_state_get.py"
 PROGRESS_HELPER="$AI_WORKSPACE/app/backend/progress_update.py"
 LOG_DIR="$JOB_DIR/logs"
 LOG_FILE="$LOG_DIR/run.log"
@@ -69,25 +69,14 @@ update_progress() {
 
 # --- Shutdown handler (post-success, non-fatal) ---
 maybe_shutdown_after_done() {
-    local job_json="$1"
     local SHUTDOWN_EXE="${DHJR_SHUTDOWN_EXE:-/mnt/c/Windows/System32/shutdown.exe}"
 
+    local status
     local should_shutdown
-    should_shutdown=$(JOB_JSON_PATH="$job_json" python3 - <<'PYEOF' || echo "no"
-import json, os
-from pathlib import Path
-try:
-    j = json.loads(Path(os.environ["JOB_JSON_PATH"]).read_text(encoding="utf-8"))
-    if j.get("status") == "finished" and j.get("shutdown_after_done") is True:
-        print("yes")
-    else:
-        print("no")
-except Exception:
-    print("no")
-PYEOF
-)
+    status=$(PYTHONPATH="$AI_WORKSPACE/app/backend" python3 "$JOB_STATE_GET" "$JOB_ID" status 2>/dev/null || echo "")
+    should_shutdown=$(PYTHONPATH="$AI_WORKSPACE/app/backend" python3 "$JOB_STATE_GET" "$JOB_ID" shutdown_after_done 2>/dev/null || echo "no")
 
-    if [ "$should_shutdown" = "yes" ]; then
+    if [ "$status" = "finished" ] && [ "$should_shutdown" = "yes" ]; then
         echo ""
         echo "===================================="
         echo "Shutdown requested"
@@ -106,9 +95,9 @@ PYEOF
     return 0
 }
 
-# --- Check job.json exists before anything ---
-if [ ! -f "$JOB_JSON" ]; then
-    fail_job "job.json not found: $JOB_JSON"
+# --- Check the authoritative SQLite job exists before anything ---
+if ! PYTHONPATH="$AI_WORKSPACE/app/backend" python3 "$JOB_STATE_GET" "$JOB_ID" status >/dev/null 2>&1; then
+    fail_job "SQLite 中找不到任务: $JOB_ID"
 fi
 
 # ============================================================
@@ -126,8 +115,10 @@ echo "Step 2: VoxCPM2 voice generation"
 echo "===================================="
 update_progress voice_generation 5 "正在加载声音模型"
 cd "$ENGINE_WORKSPACE/projects/VoxCPM"
-source "$HOME/miniconda3/etc/profile.d/conda.sh"
-conda activate voxcpm
+CONDA_EXE="${DHJR_CONDA_EXE:-conda}"
+VOXCPM_ENV="${DHJR_VOXCPM_ENV:-voxcpm}"
+eval "$(\"$CONDA_EXE\" shell.bash hook)"
+conda activate "$VOXCPM_ENV"
 DHJR_JOB_ID="$JOB_ID" DHJR_PROGRESS_HELPER="$PROGRESS_HELPER" PYTHONPATH="$ENGINE_WORKSPACE/projects/VoxCPM:$PYTHONPATH" python "$AI_WORKSPACE/scripts/generate_voice_dynamic.py"
 update_progress voice_ready 35 "声音生成完成，开始准备视频"
 
@@ -196,17 +187,8 @@ update_progress collecting_output 97 "视频处理完成，正在整理输出文
 python3 "$AI_WORKSPACE/app/backend/collect_output.py" "$JOB_ID"
 
 # ============================================================
-# Read windows_desktop_output from updated job.json for summary
-WINDOWS_OUTPUT=$(JOB_JSON_PATH="$JOB_JSON" python3 - <<'PYEOF'
-import json, os
-from pathlib import Path
-try:
-    j = json.loads(Path(os.environ["JOB_JSON_PATH"]).read_text(encoding="utf-8"))
-    print(j.get("paths", {}).get("windows_desktop_output", "N/A"))
-except Exception:
-    print("N/A")
-PYEOF
-)
+# Read the output path from authoritative SQLite for summary
+WINDOWS_OUTPUT=$(PYTHONPATH="$AI_WORKSPACE/app/backend" python3 "$JOB_STATE_GET" "$JOB_ID" paths.windows_desktop_output 2>/dev/null || echo "N/A")
 
 echo ""
 echo "===================================="
@@ -221,4 +203,4 @@ echo "===================================="
 
 # ============================================================
 # Step 8: Maybe shutdown (non-fatal — never changes job status)
-maybe_shutdown_after_done "$JOB_JSON" || true
+maybe_shutdown_after_done || true

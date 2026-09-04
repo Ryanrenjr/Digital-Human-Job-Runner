@@ -11,7 +11,7 @@ fi
 
 JOB_ID="$1"
 JOB_DIR="$AI_WORKSPACE/jobs/$JOB_ID"
-JOB_JSON="$JOB_DIR/job.json"
+JOB_STATE_GET="$AI_WORKSPACE/app/backend/job_state_get.py"
 PROGRESS_HELPER="$AI_WORKSPACE/app/backend/progress_update.py"
 LOG_DIR="$JOB_DIR/logs"
 LOG_FILE="$LOG_DIR/run.log"
@@ -56,8 +56,8 @@ update_progress() {
     fi
 }
 
-if [ ! -f "$JOB_JSON" ]; then
-    fail_job "job.json not found: $JOB_JSON"
+if ! PYTHONPATH="$AI_WORKSPACE/app/backend" python3 "$JOB_STATE_GET" "$JOB_ID" status >/dev/null 2>&1; then
+    fail_job "SQLite 中找不到任务: $JOB_ID"
 fi
 
 # ============================================================
@@ -75,8 +75,10 @@ echo "Step 2: VoxCPM2 voice generation"
 echo "===================================="
 update_progress voice_generation 5 "正在加载声音模型"
 cd "$ENGINE_WORKSPACE/projects/VoxCPM"
-source "$HOME/miniconda3/etc/profile.d/conda.sh"
-conda activate voxcpm
+CONDA_EXE="${DHJR_CONDA_EXE:-conda}"
+VOXCPM_ENV="${DHJR_VOXCPM_ENV:-voxcpm}"
+eval "$(\"$CONDA_EXE\" shell.bash hook)"
+conda activate "$VOXCPM_ENV"
 DHJR_JOB_ID="$JOB_ID" DHJR_PROGRESS_HELPER="$PROGRESS_HELPER" PYTHONPATH="$ENGINE_WORKSPACE/projects/VoxCPM:$PYTHONPATH" python "$AI_WORKSPACE/scripts/generate_voice_dynamic.py"
 update_progress voice_ready 85 "声音生成完成，正在保存文件"
 

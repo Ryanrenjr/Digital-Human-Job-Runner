@@ -12,7 +12,15 @@ from typing import Optional
 from database import claim_job
 from job_states import ACTIVE_STATUSES
 from job_store import list_jobs, load_job, save_job
-from settings import AI_WORKSPACE, RUN_SCRIPT, RUN_VOICE_SCRIPT
+from settings import (
+    AI_WORKSPACE,
+    CONDA_EXE,
+    ENGINE_WORKSPACE,
+    LATENTSYNC_ENV,
+    RUN_SCRIPT,
+    RUN_VOICE_SCRIPT,
+    VOXCPM_ENV,
+)
 
 _PIPELINE_MARKERS = [
     "run_02_latentsync_overlap.sh",
@@ -189,10 +197,10 @@ class JobStartConflict(RuntimeError):
 def _build_wsl_command(script: str, job_id: str) -> list[str]:
     app_workspace = _to_wsl_path(AI_WORKSPACE)
     script_path = _to_wsl_path(script)
-    engine_workspace = os.getenv("DHJR_ENGINE_WORKSPACE", "")
+    engine_workspace = os.getenv("DHJR_ENGINE_WORKSPACE", "").strip()
     windows_output_dir = os.getenv("DHJR_WINDOWS_OUTPUT_DIR", f"{app_workspace}/exports")
     job_workspace = f"{app_workspace}/jobs/{job_id}"
-    engine_expr = shlex.quote(engine_workspace) if engine_workspace else "$HOME/AI-Workspace"
+    engine_expr = shlex.quote(_to_wsl_path(engine_workspace)) if engine_workspace else "$HOME/AI-Workspace"
 
     env = {
         "DHJR_WORKSPACE": app_workspace,
@@ -206,7 +214,13 @@ def _build_wsl_command(script: str, job_id: str) -> list[str]:
         "DHJR_AVATAR_VIDEO": f"{job_workspace}/input/avatar.mp4",
         "DHJR_PIPELINE_SCRIPTS_DIR": f"{app_workspace}/scripts",
         "DHJR_WINDOWS_OUTPUT_DIR": windows_output_dir,
+        "DHJR_CONDA_EXE": CONDA_EXE,
+        "DHJR_VOXCPM_ENV": VOXCPM_ENV,
+        "DHJR_LATENTSYNC_ENV": LATENTSYNC_ENV,
     }
+    database_path = os.getenv("DHJR_DATABASE_PATH", "").strip()
+    if database_path:
+        env["DHJR_DATABASE_PATH"] = _to_wsl_path(database_path)
     exports = " ".join(f"{key}={shlex.quote(value)}" for key, value in env.items())
     exports += f" DHJR_ENGINE_WORKSPACE={engine_expr}"
     clean_script = f"/tmp/dhjr_{shlex.quote(job_id)}_{Path(script).name}"
