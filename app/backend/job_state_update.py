@@ -5,7 +5,7 @@ import os
 import sys
 
 from job_states import ACTIVE_STATUSES
-from job_store import load_job, save_job
+from job_store import load_job, patch_job, save_job
 
 
 def main() -> None:
@@ -27,7 +27,13 @@ def main() -> None:
     progress["message"] = message
     run_id = os.getenv("DHJR_RUN_ID", "").strip()
     if run_id:
-        save_job(job, expected_run_id=run_id, allowed_statuses=ACTIVE_STATUSES)
+        allowed = ACTIVE_STATUSES - {"cancelling"} if status in {"failed", "finished", "cancelled"} else ACTIVE_STATUSES
+        patch_job(
+            job_id,
+            run_id,
+            {key: value for key, value in job.items() if key in {"status", "finished_at", "error_message", "progress"}},
+            allowed,
+        )
     else:
         save_job(job)
 

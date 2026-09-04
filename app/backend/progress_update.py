@@ -5,7 +5,7 @@ import os
 import sys
 
 from job_states import ACTIVE_STATUSES
-from job_store import load_job, save_job
+from job_store import load_job, patch_job, save_job
 
 
 def main() -> None:
@@ -33,7 +33,7 @@ def main() -> None:
 
     run_id = os.getenv("DHJR_RUN_ID", "").strip()
     if run_id:
-        save_job(job, expected_run_id=run_id, allowed_statuses=ACTIVE_STATUSES)
+        patch_job(job_id, run_id, {"progress": progress}, ACTIVE_STATUSES)
     else:
         save_job(job)
 

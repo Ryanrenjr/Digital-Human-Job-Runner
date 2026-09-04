@@ -124,6 +124,9 @@ update_progress voice_generation 5 "正在加载声音模型"
 cd "$ENGINE_WORKSPACE/projects/VoxCPM"
 CONDA_EXE="${DHJR_CONDA_EXE:-conda}"
 VOXCPM_ENV="${DHJR_VOXCPM_ENV:-voxcpm}"
+if [ "$CONDA_EXE" = "micromamba" ]; then
+    fail_job "暂不支持 Micromamba，请使用 Conda、Miniconda 或 Miniforge。"
+fi
 eval "$(\"$CONDA_EXE\" shell.bash hook)"
 conda activate "$VOXCPM_ENV"
 DHJR_JOB_ID="$JOB_ID" DHJR_PROGRESS_HELPER="$PROGRESS_HELPER" PYTHONPATH="$ENGINE_WORKSPACE/projects/VoxCPM:$PYTHONPATH" python "$AI_WORKSPACE/scripts/generate_voice_dynamic.py"
@@ -184,6 +187,11 @@ if [ "$CLEAN_VIDEO_SIZE" -lt 1048576 ]; then
     fail_job "clean_video.mp4 is too small (${CLEAN_VIDEO_SIZE} bytes), expected > 1MB"
 fi
 echo "[INFO] clean_video.mp4: OK (${CLEAN_VIDEO_SIZE} bytes)"
+python3 "$AI_WORKSPACE/app/backend/validate_artifact.py" \
+    "$CLEAN_VIDEO" "$VOICE_WAV" \
+    --width "${DHJR_EXPECTED_VIDEO_WIDTH:-720}" \
+    --height "${DHJR_EXPECTED_VIDEO_HEIGHT:-1280}" \
+    --tolerance "${DHJR_AV_SYNC_TOLERANCE:-0.5}"
 
 # ============================================================
 echo ""

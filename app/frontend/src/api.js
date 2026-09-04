@@ -26,6 +26,7 @@ export const getJob         = (jobId)   => request('GET',    `/jobs/${jobId}`)
 export const runJob         = (jobId)   => request('POST',   `/jobs/${jobId}/run`)
 export const cancelJob      = (jobId)   => request('POST',   `/jobs/${jobId}/cancel`)
 export const resetJob       = (jobId)   => request('POST',   `/jobs/${jobId}/reset`)
+export const duplicateJob   = (jobId)   => request('POST',   `/jobs/${jobId}/duplicate`)
 export const deleteJob      = (jobId)   => request('DELETE', `/jobs/${jobId}`)
 export const getJobLog      = (jobId)   => request('GET',    `/jobs/${jobId}/log`)
 export const getVideoUrl    = (jobId)   => `${BASE_URL}/jobs/${jobId}/download`

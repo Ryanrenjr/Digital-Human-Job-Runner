@@ -61,7 +61,7 @@ function CopyPathRow({ path, copyText, copiedText }) {
   )
 }
 
-export function JobDetail({ job, log, onClose, onRefreshLog, onCancel, onReset, onDelete, t }) {
+export function JobDetail({ job, log, onClose, onRefreshLog, onCancel, onReset, onDuplicate, onDelete, t }) {
   const logRef = useRef(null)
 
   useEffect(() => {
@@ -77,9 +77,10 @@ export function JobDetail({ job, log, onClose, onRefreshLog, onCancel, onReset, 
   const videoUrl    = videoExists ? api.getVideoUrl(job.job_id)  : null
   const voiceUrl    = voiceExists ? api.getVoiceUrl(job.job_id)  : null
 
-  const canCancel = job.status !== 'finished'
-  const canReset  = ['failed', 'cancelled', 'running'].includes(job.status)
-  const canDelete = job.status !== 'running'
+  const activeStatuses = ['starting', 'running', 'collecting', 'cancelling']
+  const canCancel = activeStatuses.includes(job.status)
+  const canReset  = ['failed', 'cancelled'].includes(job.status)
+  const canDelete = !activeStatuses.includes(job.status)
 
   const handleDownload = () => {
     if (!videoUrl) return
@@ -115,6 +116,11 @@ export function JobDetail({ job, log, onClose, onRefreshLog, onCancel, onReset, 
           {canReset && (
             <button className="btn btn-ghost btn-sm" onClick={() => onReset(job.job_id)}>
               {t.detail.reset}
+            </button>
+          )}
+          {job.status === 'finished' && (
+            <button className="btn btn-ghost btn-sm" onClick={() => onDuplicate(job.job_id)}>
+              {t.detail.duplicate}
             </button>
           )}
           <button className="btn btn-ghost btn-sm" onClick={onClose}>{t.detail.close}</button>

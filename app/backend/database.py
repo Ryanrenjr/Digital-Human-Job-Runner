@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 from typing import Iterable, Optional
 
-from job_states import ACTIVE_STATUSES
+from job_states import ACTIVE_STATUSES, DONE_STATUSES
 from settings import AI_WORKSPACE
 
 
@@ -52,6 +52,14 @@ def init_db() -> None:
                 state_key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS gpu_lease (
+                lease_id TEXT PRIMARY KEY,
+                owner_type TEXT NOT NULL,
+                owner_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                acquired_at TEXT NOT NULL
+            );
             """
         )
 
@@ -86,6 +94,12 @@ def upsert_job(job: dict) -> None:
             """,
             (job["job_id"], job.get("status", "pending"), job.get("created_at", now), now, payload),
         )
+        if job.get("status") in DONE_STATUSES:
+            conn.execute(
+                "DELETE FROM gpu_lease WHERE lease_id = 'gpu' AND owner_type = 'video_generation' "
+                "AND owner_id = ? AND (run_id = ? OR ? = '')",
+                (job["job_id"], job.get("run_id", ""), job.get("run_id", "")),
+            )
 
 
 def update_job_if_run_matches(
@@ -113,7 +127,94 @@ def update_job_if_run_matches(
             "UPDATE jobs SET status = ?, updated_at = ?, payload = ? WHERE job_id = ?",
             (job.get("status", row["status"]), now, payload, job["job_id"]),
         )
+        if job.get("status") in DONE_STATUSES:
+            conn.execute(
+                "DELETE FROM gpu_lease WHERE lease_id = 'gpu' AND owner_type = 'video_generation' "
+                "AND owner_id = ? AND run_id = ?",
+                (job["job_id"], expected_run_id),
+            )
     return True
+
+
+def patch_job_if_run_matches(
+    job_id: str,
+    expected_run_id: str,
+    patch: dict,
+    allowed_statuses: set[str] | frozenset[str] | None = None,
+) -> bool:
+    """Merge a small run-scoped patch into the latest payload in one transaction."""
+    def merge(target: dict, changes: dict) -> None:
+        for key, value in changes.items():
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                merge(target[key], value)
+            else:
+                target[key] = value
+
+    init_db()
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT status, payload FROM jobs WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        if row is None:
+            return False
+        current = json.loads(row["payload"])
+        if current.get("run_id") != expected_run_id:
+            return False
+        if allowed_statuses is not None and row["status"] not in allowed_statuses:
+            return False
+        merge(current, patch)
+        now = current.get("updated_at") or current.get("finished_at") or current.get("created_at") or ""
+        payload = json.dumps(current, ensure_ascii=False, separators=(",", ":"))
+        conn.execute(
+            "UPDATE jobs SET status = ?, updated_at = ?, payload = ? WHERE job_id = ?",
+            (current.get("status", row["status"]), now, payload, job_id),
+        )
+        if current.get("status") in DONE_STATUSES:
+            conn.execute(
+                "DELETE FROM gpu_lease WHERE lease_id = 'gpu' AND owner_type = 'video_generation' "
+                "AND owner_id = ? AND run_id = ?",
+                (job_id, expected_run_id),
+            )
+    return True
+
+
+def claim_gpu_lease(owner_type: str, owner_id: str, run_id: str, acquired_at: str) -> dict:
+    """Atomically acquire the single local GPU lease."""
+    init_db()
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM gpu_lease WHERE lease_id = 'gpu'").fetchone()
+        if row is not None:
+            return {"claimed": False, "owner_type": row["owner_type"], "owner_id": row["owner_id"]}
+        conn.execute(
+            "INSERT INTO gpu_lease(lease_id, owner_type, owner_id, run_id, acquired_at) VALUES ('gpu', ?, ?, ?, ?)",
+            (owner_type, owner_id, run_id, acquired_at),
+        )
+    return {"claimed": True, "owner_type": owner_type, "owner_id": owner_id}
+
+
+def release_gpu_lease(owner_type: str, owner_id: str, run_id: str | None = None) -> bool:
+    init_db()
+    with connect() as conn:
+        if run_id is None:
+            result = conn.execute(
+                "DELETE FROM gpu_lease WHERE lease_id = 'gpu' AND owner_type = ? AND owner_id = ?",
+                (owner_type, owner_id),
+            )
+        else:
+            result = conn.execute(
+                "DELETE FROM gpu_lease WHERE lease_id = 'gpu' AND owner_type = ? AND owner_id = ? AND run_id = ?",
+                (owner_type, owner_id, run_id),
+            )
+    return result.rowcount > 0
+
+
+def get_gpu_lease() -> Optional[dict]:
+    init_db()
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM gpu_lease WHERE lease_id = 'gpu'").fetchone()
+    return dict(row) if row else None
 
 
 def claim_job(job_id: str, run_id: str, started_at: str) -> dict:
@@ -152,6 +253,15 @@ def claim_job(job_id: str, run_id: str, started_at: str) -> dict:
                 "blocking_job_id": active_rows["job_id"],
             }
 
+        lease = conn.execute("SELECT * FROM gpu_lease WHERE lease_id = 'gpu'").fetchone()
+        if lease is not None:
+            return {
+                "claimed": False,
+                "reason": "gpu_busy",
+                "blocking_job_id": lease["owner_id"],
+                "blocking_owner_type": lease["owner_type"],
+            }
+
         target["status"] = "starting"
         target["run_id"] = run_id
         target["started_at"] = started_at
@@ -168,6 +278,10 @@ def claim_job(job_id: str, run_id: str, started_at: str) -> dict:
             "UPDATE jobs SET status = ?, updated_at = ?, payload = ? WHERE job_id = ?",
             ("starting", started_at, payload, job_id),
         )
+        conn.execute(
+            "INSERT INTO gpu_lease(lease_id, owner_type, owner_id, run_id, acquired_at) VALUES ('gpu', 'video_generation', ?, ?, ?)",
+            (job_id, run_id, started_at),
+        )
         return {"claimed": True, "job": target}
 
 
@@ -175,6 +289,10 @@ def delete_job(job_id: str) -> None:
     init_db()
     with connect() as conn:
         conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+        conn.execute(
+            "DELETE FROM gpu_lease WHERE lease_id = 'gpu' AND owner_type = 'video_generation' AND owner_id = ?",
+            (job_id,),
+        )
 
 
 def get_voice(voice_id: str) -> Optional[dict]:

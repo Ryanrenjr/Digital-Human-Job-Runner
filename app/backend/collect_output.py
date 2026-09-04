@@ -10,7 +10,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from settings import JOBS_DIR, WINDOWS_OUTPUT_DIR
-from job_store import load_job, save_job
+from job_store import load_job, patch_job, save_job
 from job_states import ACTIVE_STATUSES
 
 
@@ -22,15 +22,14 @@ def fail_job(job: dict | None, msg: str) -> None:
     print(f"[ERROR] {msg}", file=sys.stderr)
     if job:
         try:
-            job["status"] = "failed"
-            job["error_message"] = msg
-            job.setdefault("progress", {})
-            job["progress"]["stage"] = "failed"
-            job["progress"]["message"] = msg
             run_id = os.getenv("DHJR_RUN_ID", "").strip()
             if run_id:
-                save_job(job, expected_run_id=run_id, allowed_statuses=ACTIVE_STATUSES)
+                patch_job(job["job_id"], run_id, {"status": "failed", "error_message": msg, "progress": {"stage": "failed", "message": msg}}, ACTIVE_STATUSES - {"cancelling"})
             else:
+                job["status"] = "failed"
+                job["error_message"] = msg
+                job.setdefault("progress", {})
+                job["progress"].update({"stage": "failed", "message": msg})
                 save_job(job)
             print("[INFO] SQLite job state updated: status=failed")
         except Exception as e:
@@ -132,27 +131,30 @@ def main() -> None:
     # --- Update job.json ---
     print(f"[INFO] Updating job.json...")
     try:
-        job["status"] = "finished"
-        job["finished_at"] = now_iso()
-        job["error_message"] = None
-
-        progress = job.setdefault("progress", {})
+        progress = {**job.get("progress", {})}
         total = progress.get("total_windows", 0)
         progress["stage"] = "finished"
         progress["current_window"] = total if total > 0 else 0
         progress["percent"] = 100
         progress["message"] = "CleanVideo generated successfully"
 
-        paths = job.setdefault("paths", {})
+        paths = {**job.get("paths", {})}
         paths["clean_video"] = str(job_clean_video)
         paths["voice_wav"] = str(job_output_dir / "voice.wav")
         paths["voice_for_latentsync_wav"] = str(job_output_dir / "voice_for_latentsync.wav")
         paths["windows_desktop_output"] = str(windows_dst)
 
         run_id = os.getenv("DHJR_RUN_ID", "").strip()
-        saved = save_job(job, expected_run_id=run_id, allowed_statuses=ACTIVE_STATUSES) if run_id else save_job(job)
+        finished_at = now_iso()
+        saved = patch_job(
+            job_id,
+            run_id,
+            {"status": "finished", "finished_at": finished_at, "error_message": None, "progress": progress, "paths": paths},
+            ACTIVE_STATUSES - {"cancelling"},
+        ) if run_id else save_job({**job, "status": "finished", "finished_at": finished_at, "error_message": None, "progress": progress, "paths": paths})
         if not saved:
             fail_job(None, "任务已被取消，拒绝写入完成状态。")
+        job.update({"status": "finished", "finished_at": finished_at, "error_message": None, "progress": progress, "paths": paths})
     except Exception as e:
         fail_job(job, f"Failed to update SQLite job state: {e}")
 

@@ -12,7 +12,7 @@ from typing import Optional
 
 from database import claim_job
 from job_states import ACTIVE_STATUSES
-from job_store import list_jobs, load_job, save_job
+from job_store import list_jobs, load_job, patch_job, save_job
 from settings import (
     AI_WORKSPACE,
     CONDA_EXE,
@@ -23,14 +23,6 @@ from settings import (
     VOXCPM_ENV,
 )
 from voice_store import load_voice_profile
-
-_PIPELINE_MARKERS = [
-    "run_02_latentsync_overlap.sh",
-    "generate_voice_and_timeline_voxcpm2.py",
-    "postprocess_voxcpm_segments_v12.py",
-    "scripts.inference",
-]
-
 
 def check_no_other_running_job(job_id: str) -> Optional[str]:
     """Return the job_id of a running job that is NOT this job, or None."""
@@ -105,17 +97,12 @@ def is_job_process_running(job_id: str) -> bool:
             if "run_cleanvideo_job.sh" in line and job_id in line:
                 return True
 
-        for line in lines:
-            for marker in _PIPELINE_MARKERS:
-                if marker in line:
-                    return True
-
         return False
     except Exception:
         return False
 
 
-def kill_job_process(job_id: str) -> bool:
+def kill_job_process(job_id: str, force: bool = False) -> bool:
     """
     Kill the running pipeline for job_id by sending SIGTERM to its process group.
     Tries the exact run_cleanvideo_job.sh process first, then any pipeline markers.
@@ -130,8 +117,9 @@ def kill_job_process(job_id: str) -> bool:
             and metadata.get("wsl_pgid")
         ):
             try:
+                signal_name = "KILL" if force else "TERM"
                 result = subprocess.run(
-                    ["wsl", "bash", "-lc", f"kill -TERM -- -{int(metadata['wsl_pgid'])} 2>/dev/null"],
+                    ["wsl", "bash", "-lc", f"kill -{signal_name} -- -{int(metadata['wsl_pgid'])} 2>/dev/null"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
                 )
                 if result.returncode == 0:
@@ -181,14 +169,6 @@ def kill_job_process(job_id: str) -> bool:
                 if _kill_pgid(pid):
                     return True
 
-        # Priority 2: any pipeline stage process (LatentSync / VoxCPM2 / etc.)
-        for line in lines:
-            for marker in _PIPELINE_MARKERS:
-                if marker in line:
-                    pid = int(line.split()[1])
-                    _kill_pgid(pid)
-                    return True
-
         return False
     except Exception:
         return False
@@ -208,19 +188,29 @@ def _append_launcher_log(job: dict, message: str) -> None:
 
 
 def _mark_failed(job: dict, message: str, run_id: str | None = None) -> bool:
-    job.pop("launcher_pid", None)
-    job.pop("process_group_id", None)
-    job["status"] = "failed"
-    job["finished_at"] = _now_iso()
-    job["error_message"] = message
-    job.setdefault("progress", {})
-    job["progress"]["stage"] = "failed"
-    job["progress"]["percent"] = 0
-    job["progress"]["message"] = message
     if run_id is not None:
-        if not save_job(job, expected_run_id=run_id, allowed_statuses=ACTIVE_STATUSES):
+        saved = patch_job(
+            job["job_id"], run_id,
+            {
+                "status": "failed",
+                "finished_at": _now_iso(),
+                "error_message": message,
+                "launcher_pid": None,
+                "process_group_id": None,
+                "progress": {"stage": "failed", "percent": 0, "message": message},
+            },
+            ACTIVE_STATUSES,
+        )
+        if not saved:
             return False
     else:
+        job.pop("launcher_pid", None)
+        job.pop("process_group_id", None)
+        job["status"] = "failed"
+        job["finished_at"] = _now_iso()
+        job["error_message"] = message
+        job.setdefault("progress", {})
+        job["progress"].update({"stage": "failed", "percent": 0, "message": message})
         save_job(job)
     _append_launcher_log(job, f"[启动失败] {message}")
     return True
@@ -339,12 +329,15 @@ def start_job(job_id: str) -> int:
         if reason == "not_found":
             raise RuntimeError(f"任务不存在：{job_id}")
         if reason == "finished":
-            raise JobStartConflict("任务已经完成，请先重置任务后再运行。")
+            raise JobStartConflict("任务已经完成，请使用“复制”创建一个新任务。")
         if reason == "already_active":
             raise JobStartConflict("任务已经在运行中。")
         if reason == "another_active":
             blocker = claim.get("blocking_job_id", "其他任务")
             raise JobStartConflict(f"另一个任务正在运行：{blocker}。")
+        if reason == "gpu_busy":
+            blocker = claim.get("blocking_job_id", "其他 GPU 任务")
+            raise JobStartConflict(f"GPU 正在执行另一个任务：{blocker}。")
         raise JobStartConflict("任务当前无法启动，请稍后重试。")
 
     job = claim["job"]
@@ -385,9 +378,11 @@ def start_job(job_id: str) -> int:
     if job.get("status") != "starting" or job.get("run_id") != run_id:
         _terminate_process(proc)
         raise JobStartConflict("任务在启动过程中已被取消。")
-    job["launcher_pid"] = proc.pid
-    job["process_group_id"] = proc.pid
-    if not save_job(job, expected_run_id=run_id, allowed_statuses={"starting"}):
+    if not patch_job(
+        job_id, run_id,
+        {"launcher_pid": proc.pid, "process_group_id": proc.pid},
+        {"starting"},
+    ):
         _terminate_process(proc)
         raise JobStartConflict("任务在启动过程中已被取消。")
     time.sleep(1.5)
@@ -420,3 +415,17 @@ def _terminate_process(proc: subprocess.Popen) -> None:
             proc.kill()
         except OSError:
             pass
+
+
+def wait_for_job_process_exit(job_id: str, timeout: float = 30.0, registration_grace: float = 2.0) -> bool:
+    """Wait for this job's exact process group to disappear after cancellation."""
+    deadline = time.monotonic() + timeout
+    grace_deadline = time.monotonic() + registration_grace
+    saw_process = False
+    while time.monotonic() < deadline:
+        alive = is_job_process_running(job_id)
+        saw_process = saw_process or alive
+        if not alive and (saw_process or time.monotonic() >= grace_deadline):
+            return True
+        time.sleep(0.25)
+    return not is_job_process_running(job_id)

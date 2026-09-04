@@ -14,7 +14,8 @@ os.environ["DHJR_DATABASE_PATH"] = str(TEST_ROOT / "runner.sqlite3")
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from job_store import create_job, delete_job, list_jobs, load_job, save_job
-from database import claim_job
+from database import claim_gpu_lease, claim_job, get_gpu_lease, release_gpu_lease
+from job_store import build_paths, patch_job
 from runner import _build_wsl_command, _to_wsl_path
 import runner
 from schemas import JobCreateRequest
@@ -133,6 +134,31 @@ class StorageTests(unittest.TestCase):
         from prepare_job import validate_job
         with self.assertRaises(ValueError):
             validate_job(job, job["job_id"])
+        delete_job(job["job_id"])
+
+    def test_canonical_paths_keep_run_metadata(self):
+        paths = build_paths("job-paths", "clean_video")
+        self.assertTrue(paths["run_metadata"].endswith("run.json"))
+        self.assertEqual(paths["background_snapshot"].replace("\\", "/").split("/")[-1], "avatar.mp4")
+
+    def test_gpu_lease_is_shared_by_voice_and_video(self):
+        self.assertTrue(claim_gpu_lease("voice_training", "voice-a", "voice-run", "2026-09-04T00:00:00")["claimed"])
+        job = create_job(self.make_request())
+        claimed = claim_job(job["job_id"], "video-run", "2026-09-04T00:00:01")
+        self.assertFalse(claimed["claimed"])
+        self.assertEqual(claimed["reason"], "gpu_busy")
+        self.assertEqual(get_gpu_lease()["owner_type"], "voice_training")
+        release_gpu_lease("voice_training", "voice-a", "voice-run")
+        delete_job(job["job_id"])
+
+    def test_run_patch_preserves_fields_from_other_writer(self):
+        job = create_job(self.make_request())
+        claimed = claim_job(job["job_id"], "run-patch", "2026-09-04T00:00:00")
+        self.assertTrue(patch_job(job["job_id"], "run-patch", {"launcher_pid": 1234}, {"starting"}))
+        self.assertTrue(patch_job(job["job_id"], "run-patch", {"progress": {"percent": 8}}, {"starting"}))
+        current = load_job(job["job_id"])
+        self.assertEqual(current["launcher_pid"], 1234)
+        self.assertEqual(current["progress"]["percent"], 8)
         delete_job(job["job_id"])
 
 

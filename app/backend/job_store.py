@@ -5,12 +5,19 @@ import logging
 import os
 import re
 import shutil
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from database import delete_job as db_delete_job
-from database import get_job, list_jobs as db_list_jobs, update_job_if_run_matches, upsert_job
+from database import (
+    get_job,
+    list_jobs as db_list_jobs,
+    patch_job_if_run_matches as db_patch_job_if_run_matches,
+    update_job_if_run_matches,
+    upsert_job,
+)
 from job_states import ACTIVE_STATUSES
 from settings import DEFAULT_VOICE_ID, JOBS_DIR, WINDOWS_OUTPUT_DIR
 
@@ -75,6 +82,20 @@ def save_job(
     return True
 
 
+def patch_job(
+    job_id: str,
+    expected_run_id: str,
+    patch: dict,
+    allowed_statuses: set[str] | frozenset[str] | None = None,
+) -> bool:
+    updated = db_patch_job_if_run_matches(job_id, expected_run_id, patch, allowed_statuses)
+    if updated:
+        job = get_job(job_id)
+        if job is not None:
+            _write_json_mirror(job)
+    return updated
+
+
 def list_jobs() -> list:
     return db_list_jobs()
 
@@ -91,8 +112,9 @@ def get_running_job() -> Optional[dict]:
     return None
 
 
-def _build_paths(job_id: str) -> dict:
+def build_paths(job_id: str, output_type: str = "clean_video") -> dict:
     job_dir = JOBS_DIR / job_id
+    is_voice = output_type == "voice_only"
     return {
         "job_dir": str(job_dir),
         "input_dir": str(job_dir / "input"),
@@ -112,10 +134,13 @@ def _build_paths(job_id: str) -> dict:
         "voice_prompt_txt": str(job_dir / "input/voice_prompt.txt"),
         "voice_wav": str(job_dir / "output/voice.wav"),
         "voice_for_latentsync_wav": str(job_dir / "output/voice_for_latentsync.wav"),
-        "clean_video": str(job_dir / "output/clean_video.mp4"),
+        "clean_video": None if is_voice else str(job_dir / "output/clean_video.mp4"),
         "final_video": None,
         "run_log": str(job_dir / "logs/run.log"),
-        "windows_desktop_output": str(WINDOWS_OUTPUT_DIR / f"{job_id}_clean_video.mp4"),
+        "windows_desktop_output": str(
+            WINDOWS_OUTPUT_DIR / f"{job_id}_voice.wav"
+            if is_voice else WINDOWS_OUTPUT_DIR / f"{job_id}_clean_video.mp4"
+        ),
         "subtitle_lines_txt": str(job_dir / "output/subtitle_lines.txt"),
         "script_meta_json": str(job_dir / "output/script_meta.json"),
     }
@@ -195,7 +220,7 @@ def create_job(req: JobCreateRequest, voice_data: dict | None = None) -> dict:
             "percent": 0,
             "message": "Waiting to start",
         },
-        "paths": _build_paths(job_id),
+        "paths": build_paths(job_id, req.output_type),
     }
 
     # Snapshot dependencies before the job becomes visible to the queue.
@@ -238,4 +263,53 @@ def create_job(req: JobCreateRequest, voice_data: dict | None = None) -> dict:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    return job
+
+
+def duplicate_job(source: dict) -> dict:
+    """Create an immutable-input copy of an existing job with a fresh ID."""
+    job_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_video_job"
+    job_dir = JOBS_DIR / job_id
+    for subdir in ("input", "output", "logs"):
+        (job_dir / subdir).mkdir(parents=True, exist_ok=True)
+
+    job = {
+        key: deepcopy(source.get(key))
+        for key in (
+            "title", "subtitle", "keywords", "script", "background_id", "voice_id",
+            "voice_language", "voice_dialect", "voice_mode", "voice_style",
+            "voice_checkpoint_path", "voice_reference_wav_path", "voice_reference_text",
+            "voice_revision", "voice_training_status", "output_type", "shutdown_after_done",
+        )
+    }
+    job.update({
+        "job_id": job_id,
+        "status": "pending",
+        "created_at": _now_iso(),
+        "started_at": None,
+        "finished_at": None,
+        "error_message": None,
+        "progress": {"stage": "pending", "current_window": 0, "total_windows": 0, "percent": 0, "message": "Waiting to start"},
+        "paths": build_paths(job_id, job.get("output_type", "clean_video")),
+    })
+
+    source_paths = source.get("paths", {})
+    for source_key, target_key in (
+        ("background_snapshot", "background_snapshot"),
+        ("voice_reference_snapshot", "voice_reference_snapshot"),
+    ):
+        source_path = source_paths.get(source_key)
+        target_path = job["paths"].get(target_key)
+        if source_path and target_path and Path(_host_path(source_path)).exists():
+            _snapshot_file(source_path, Path(target_path))
+            if target_key == "voice_reference_snapshot":
+                job["voice_reference_wav_path"] = _wsl_path(target_path)
+
+    for filename in ("subtitle_lines.txt", "script_meta.json"):
+        source_file = _host_path(source_paths.get("output_dir", "")) / filename
+        target_file = Path(job["paths"]["output_dir"]) / filename
+        if source_file.exists():
+            shutil.copy2(source_file, target_file)
+
+    save_job(job)
     return job

@@ -16,9 +16,8 @@ from settings import (
     BACKGROUNDS_JSON,
     JOBS_DIR,
     SUPPORTED_VOICE_IDS,
-    WINDOWS_OUTPUT_DIR,
 )
-from job_store import load_job, save_job
+from job_store import build_paths, load_job, patch_job, save_job
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -213,40 +212,6 @@ def clean_job_outputs(job_output_dir: Path) -> None:
             print(f"[INFO] Removed old output dir: {name}")
 
 
-def build_paths(job_id: str, output_type: str = "clean_video") -> dict:
-    job_dir = JOBS_DIR / job_id
-    is_voice = output_type == "voice_only"
-    return {
-        "job_dir": str(job_dir),
-        "input_dir": str(job_dir / "input"),
-        "output_dir": str(job_dir / "output"),
-        "workspace_dir": str(job_dir / "workspace"),
-        "work_dir": str(job_dir / "work"),
-        "avatar_video": str(job_dir / "input/avatar.mp4"),
-        "background_snapshot": str(job_dir / "input/avatar.mp4"),
-        "log_dir": str(job_dir / "logs"),
-        "title_txt": str(job_dir / "input/title.txt"),
-        "subtitle_txt": str(job_dir / "input/subtitle.txt"),
-        "keywords_txt": str(job_dir / "input/keywords.txt"),
-        "script_txt": str(job_dir / "input/script.txt"),
-        "voice_profile_json": str(job_dir / "input/voice_profile.json"),
-        "voice_reference_snapshot": str(job_dir / "input/voice_reference.wav"),
-        "voice_prompt_txt": str(job_dir / "input/voice_prompt.txt"),
-        "voice_wav": str(job_dir / "output/voice.wav"),
-        "voice_for_latentsync_wav": str(job_dir / "output/voice_for_latentsync.wav"),
-        "clean_video": None if is_voice else str(job_dir / "output/clean_video.mp4"),
-        "final_video": None,
-        "run_log": str(job_dir / "logs/run.log"),
-        "subtitle_lines_txt": str(job_dir / "output/subtitle_lines.txt"),
-        "script_meta_json": str(job_dir / "output/script_meta.json"),
-        "windows_desktop_output": (
-            str(WINDOWS_OUTPUT_DIR / f"{job_id}_voice.wav")
-            if is_voice else
-            str(WINDOWS_OUTPUT_DIR / f"{job_id}_clean_video.mp4")
-        ),
-    }
-
-
 def main() -> None:
     if len(sys.argv) != 2:
         print("Usage: python prepare_job.py JOB_ID", file=sys.stderr)
@@ -339,19 +304,29 @@ def main() -> None:
     # --- Update job.json ---
     print(f"[INFO] Updating job.json...")
     try:
-        job["status"] = "running"
-        if not job.get("started_at"):
-            job["started_at"] = now_iso()
-        job["error_message"] = None
-        job.setdefault("progress", {})
-        job["progress"]["stage"] = "prepared"
-        job["progress"]["current_window"] = 0
-        job["progress"]["total_windows"] = 0
-        job["progress"]["percent"] = 0
-        job["progress"]["message"] = "Job prepared successfully"
-        job["paths"] = build_paths(job_id, output_type)
-        if not save_job(job, expected_run_id=run_id, allowed_statuses={"starting"}):
+        started_at = job.get("started_at") or now_iso()
+        paths = build_paths(job_id, output_type)
+        progress = {
+            "stage": "prepared",
+            "current_window": 0,
+            "total_windows": 0,
+            "percent": 0,
+            "message": "Job prepared successfully",
+        }
+        if not patch_job(
+            job_id,
+            run_id,
+            {
+                "status": "running",
+                "started_at": started_at,
+                "error_message": None,
+                "progress": progress,
+                "paths": paths,
+            },
+            {"starting"},
+        ):
             fail_job(job, "任务在准备期间已被取消，已停止启动。")
+        job.update({"status": "running", "started_at": started_at, "error_message": None, "progress": progress, "paths": paths})
     except Exception as e:
         fail_job(job, f"Failed to update SQLite job state: {e}")
 

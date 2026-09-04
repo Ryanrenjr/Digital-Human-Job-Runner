@@ -334,6 +334,18 @@ export default function App() {
     }
   }
 
+  const handleDuplicateJob = async (jobId) => {
+    setBanner(null)
+    try {
+      const job = await api.duplicateJob(jobId)
+      await loadJobs()
+      setSelectedJobId(job.job_id)
+      showBanner('success', `${t.messages.jobDuplicated}: ${job.job_id}`)
+    } catch (e) {
+      showBanner('error', e.detail || e.message || t.messages.failDuplicate)
+    }
+  }
+
   const handleDeleteJob = async (jobId) => {
     if (!window.confirm(
       `${t.messages.deleteConfirmTitle}\n${t.messages.deleteConfirmBody}`
@@ -424,6 +436,7 @@ export default function App() {
               onRun={handleRunJob}
               onCancel={handleCancelJob}
               onReset={handleResetJob}
+              onDuplicate={handleDuplicateJob}
               onDelete={handleDeleteJob}
               onRefresh={loadJobs}
               t={t}
@@ -436,6 +449,7 @@ export default function App() {
                 onRefreshLog={() => loadJobLog(selectedJobId)}
                 onCancel={handleCancelJob}
                 onReset={handleResetJob}
+                onDuplicate={handleDuplicateJob}
                 onDelete={handleDeleteJob}
                 t={t}
               />

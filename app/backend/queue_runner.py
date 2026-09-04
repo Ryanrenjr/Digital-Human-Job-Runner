@@ -4,14 +4,18 @@ import logging
 import os
 import signal
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from database import get_queue_state, set_queue_state
+from database import release_gpu_lease
 from job_states import ACTIVE_STATUSES, DONE_STATUSES
-from job_store import list_jobs, save_job
+from job_store import list_jobs, patch_job, save_job
 from runner import JobStartConflict, is_job_process_running, start_job
 from settings import AI_WORKSPACE, SHUTDOWN_EXE
+from voice_store import list_voice_profiles, load_voice_profile, save_voice_profile
+from voice_training_runner import is_voice_training_process_running, recover_stale_voice_training
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +28,8 @@ class QueueRunner:
     def __init__(self):
         self._state = self._load_state()
         self._task: Optional[asyncio.Task] = None
+        self._missing_process_counts: dict[str, int] = {}
+        self._missing_voice_counts: dict[str, int] = {}
 
     # ── persistence ────────────────────────────────────────────────────────
 
@@ -63,12 +69,93 @@ class QueueRunner:
             job_id = job["job_id"]
             if not is_job_process_running(job_id):
                 logger.warning("[QueueRunner] Stale job %s → failed", job_id)
-                job["status"] = "failed"
-                job["error_message"] = "Process not found on startup — recovered as failed"
-                job.setdefault("progress", {})
-                job["progress"]["stage"]   = "failed"
-                job["progress"]["message"] = "Recovered on startup"
-                save_job(job)
+                run_id = job.get("run_id")
+                if run_id:
+                    patch_job(
+                        job_id, run_id,
+                        {
+                            "status": "cancelled" if job.get("status") == "cancelling" else "failed",
+                            "finished_at": datetime.now().isoformat(timespec="seconds"),
+                            "error_message": "取消任务已完成" if job.get("status") == "cancelling" else "进程未找到，已恢复为失败状态",
+                            "progress": {"stage": "cancelled" if job.get("status") == "cancelling" else "failed", "message": "启动时恢复"},
+                            "launcher_pid": None,
+                            "process_group_id": None,
+                        },
+                        ACTIVE_STATUSES,
+                    )
+                else:
+                    job["status"] = "failed"
+                    job["error_message"] = "Process not found on startup — recovered as failed"
+                    job.setdefault("progress", {})
+                    job["progress"]["stage"] = "failed"
+                    job["progress"]["message"] = "Recovered on startup"
+                    save_job(job)
+        recover_stale_voice_training()
+
+    def watchdog(self) -> None:
+        """Recover unexpectedly dead GPU processes without waiting for a restart."""
+        for job in list_jobs():
+            status = job.get("status")
+            job_id = job.get("job_id")
+            run_id = job.get("run_id")
+            if status not in ACTIVE_STATUSES or not job_id or not run_id:
+                continue
+            if status == "cancelling":
+                if not is_job_process_running(job_id):
+                    patch_job(
+                        job_id, run_id,
+                        {
+                            "status": "cancelled",
+                            "finished_at": datetime.now().isoformat(timespec="seconds"),
+                            "error_message": "Cancelled by user.",
+                            "progress": {"stage": "cancelled", "message": "Cancelled by user."},
+                            "launcher_pid": None,
+                            "process_group_id": None,
+                        },
+                        {"cancelling"},
+                    )
+                continue
+            if is_job_process_running(job_id):
+                self._missing_process_counts.pop(job_id, None)
+                continue
+            missing = self._missing_process_counts.get(job_id, 0) + 1
+            self._missing_process_counts[job_id] = missing
+            if missing < 3:
+                continue
+            patch_job(
+                job_id, run_id,
+                {
+                    "status": "failed",
+                    "finished_at": datetime.now().isoformat(timespec="seconds"),
+                    "error_message": "任务进程意外退出，已由后台监控恢复。",
+                    "progress": {"stage": "failed", "message": "任务进程意外退出，已由后台监控恢复。"},
+                    "launcher_pid": None,
+                    "process_group_id": None,
+                },
+                ACTIVE_STATUSES,
+            )
+            self._missing_process_counts.pop(job_id, None)
+
+        for profile in list_voice_profiles():
+            voice_id = profile.get("id")
+            if profile.get("trainingStatus") != "training" or not voice_id:
+                continue
+            if is_voice_training_process_running(voice_id):
+                self._missing_voice_counts.pop(voice_id, None)
+                continue
+            missing = self._missing_voice_counts.get(voice_id, 0) + 1
+            self._missing_voice_counts[voice_id] = missing
+            if missing >= 3:
+                current = load_voice_profile(voice_id)
+                if current and current.get("trainingStatus") == "training":
+                    current["trainingStatus"] = "failed"
+                    current["trainingFinishedAt"] = datetime.now().isoformat(timespec="seconds")
+                    current["trainingError"] = "训练进程意外退出，已由后台监控恢复。"
+                    current["trainingPid"] = None
+                    current["trainingProcessGroupId"] = None
+                    save_voice_profile(current)
+                    release_gpu_lease("voice_training", voice_id, current.get("trainingRunId"))
+                self._missing_voice_counts.pop(voice_id, None)
 
     # ── properties ─────────────────────────────────────────────────────────
 
@@ -209,6 +296,7 @@ class QueueRunner:
         while True:
             await asyncio.sleep(5)
             try:
+                self.watchdog()
                 self.tick()
             except Exception as exc:
                 logger.warning("[QueueRunner] Tick error: %s", exc)

@@ -19,8 +19,13 @@ TRAIN_DIR="$VOICE_DIR/training"
 RAW_WAV_DIR="$TRAIN_DIR/raw_wav"
 CLIPS_DIR="$TRAIN_DIR/clips"
 LOG_FILE="$VOICE_DIR/train.log"
+RUN_ID="${DHJR_TRAINING_RUN_ID:-}"
+RUN_METADATA="${DHJR_VOICE_RUN_METADATA:-$VOICE_DIR/run.json}"
 
 mkdir -p "$RAW_WAV_DIR" "$CLIPS_DIR"
+WSL_PGID=$(ps -o pgid= -p $$ | tr -d ' ')
+printf '{"run_id":"%s","wsl_pid":%s,"wsl_pgid":%s}\n' "$RUN_ID" "$$" "$WSL_PGID" > "$RUN_METADATA.tmp"
+mv -f "$RUN_METADATA.tmp" "$RUN_METADATA"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "===================================="
@@ -32,7 +37,7 @@ echo "===================================="
 fail_voice() {
     local msg="${1:-Unknown voice training error}"
     echo "[ERROR] $msg"
-    PROFILE_JSON="$PROFILE_JSON" FAIL_MSG="$msg" PYTHONPATH="$AI_WORKSPACE/app/backend:$PYTHONPATH" python3 - <<'PYEOF' || true
+PROFILE_JSON="$PROFILE_JSON" FAIL_MSG="$msg" VOICE_ID="$VOICE_ID" TRAINING_RUN_ID="$RUN_ID" PYTHONPATH="$AI_WORKSPACE/app/backend:$PYTHONPATH" python3 - <<'PYEOF' || true
 import json, os
 from datetime import datetime
 from pathlib import Path
@@ -43,7 +48,11 @@ if p.exists():
     j["trainingStatus"] = "failed"
     j["trainingFinishedAt"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     j["trainingError"] = os.environ.get("FAIL_MSG", "Unknown voice training error")
+    j["trainingPid"] = None
+    j["trainingProcessGroupId"] = None
     save_voice_profile(j)
+from database import release_gpu_lease
+release_gpu_lease("voice_training", os.environ["VOICE_ID"], os.environ.get("TRAINING_RUN_ID"))
 PYEOF
     exit 1
 }
@@ -76,6 +85,9 @@ echo ""
 echo "Step 2: Slice speech clips"
 CONDA_EXE="${DHJR_CONDA_EXE:-conda}"
 VOXCPM_ENV="${DHJR_VOXCPM_ENV:-voxcpm}"
+if [ "$CONDA_EXE" = "micromamba" ]; then
+    fail_voice "暂不支持 Micromamba，请使用 Conda、Miniconda 或 Miniforge。"
+fi
 eval "$(\"$CONDA_EXE\" shell.bash hook)"
 conda activate "$VOXCPM_ENV"
 PYTHONPATH="$AI_WORKSPACE/app/backend:$OFFICIAL_VOXCPM/src:$PYTHONPATH" TRAIN_RAW_WAV_DIR="$RAW_WAV_DIR" TRAIN_CLIPS_DIR="$CLIPS_DIR" python "$AI_WORKSPACE/scripts/voice_slice_audio.py"
@@ -147,7 +159,11 @@ from voice_store import save_voice_profile
 p = Path(os.environ["PROFILE_JSON"])
 j = json.loads(p.read_text(encoding="utf-8"))
 j["trainingFinishedAt"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+j["trainingPid"] = None
+j["trainingProcessGroupId"] = None
 save_voice_profile(j)
+from database import release_gpu_lease
+release_gpu_lease("voice_training", j["id"], j.get("trainingRunId"))
 PYEOF
 
 echo "===================================="

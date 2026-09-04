@@ -82,6 +82,9 @@ update_progress voice_generation 5 "正在加载声音模型"
 cd "$ENGINE_WORKSPACE/projects/VoxCPM"
 CONDA_EXE="${DHJR_CONDA_EXE:-conda}"
 VOXCPM_ENV="${DHJR_VOXCPM_ENV:-voxcpm}"
+if [ "$CONDA_EXE" = "micromamba" ]; then
+    fail_job "暂不支持 Micromamba，请使用 Conda、Miniconda 或 Miniforge。"
+fi
 eval "$(\"$CONDA_EXE\" shell.bash hook)"
 conda activate "$VOXCPM_ENV"
 DHJR_JOB_ID="$JOB_ID" DHJR_PROGRESS_HELPER="$PROGRESS_HELPER" PYTHONPATH="$ENGINE_WORKSPACE/projects/VoxCPM:$PYTHONPATH" python "$AI_WORKSPACE/scripts/generate_voice_dynamic.py"
@@ -105,6 +108,7 @@ VOICE_LS_WAV="$OUTPUT_DIR/voice_for_latentsync.wav"
 if [ ! -f "$VOICE_WAV" ]; then
     fail_job "voice.wav not found: $VOICE_WAV"
 fi
+python3 "$AI_WORKSPACE/app/backend/validate_artifact.py" --audio "$VOICE_WAV"
 echo "[INFO] voice.wav            : OK"
 
 if [ ! -f "$VOICE_LS_WAV" ]; then

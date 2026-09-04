@@ -143,7 +143,7 @@ def _get_readiness(force: bool = False) -> dict:
         or (os.name == "nt" and (_wsl_conda_command_exists(LATENTSYNC_ENV, "ffprobe") or _wsl_command_exists("ffprobe"))),
         "媒体检测工具可用", "安装 FFmpeg（其中包含 ffprobe），或配置 DHJR_FFPROBE_CANDIDATES。",
     ))
-    conda_ok = (
+    conda_ok = CONDA_EXE != "micromamba" and (
         (_command_exists(CONDA_EXE) and _runs([CONDA_EXE, "--version"]))
         or (os.name == "nt" and _runs(["wsl", "bash", "-lc", (
             "source /home/*/miniconda3/etc/profile.d/conda.sh 2>/dev/null "
@@ -153,10 +153,10 @@ def _get_readiness(force: bool = False) -> dict:
         )]))
     )
     checks.append(_check(
-        "conda", "Conda / Micromamba",
+        "conda", "Conda / Miniconda / Miniforge",
         conda_ok,
         f"环境管理器可用（{CONDA_EXE}）",
-        "安装 Conda、Miniforge 或 Micromamba，并配置 DHJR_CONDA_EXE。",
+        "请安装 Conda、Miniconda 或 Miniforge，并配置 DHJR_CONDA_EXE；当前暂不支持 Micromamba。",
     ))
     vox_dir = ENGINE_WORKSPACE / "projects" / "VoxCPM"
     checks.append(_check(

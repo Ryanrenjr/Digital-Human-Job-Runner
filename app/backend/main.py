@@ -23,7 +23,7 @@ from background_utils import (
     make_background_id,
     save_backgrounds,
 )
-from job_store import create_job, delete_job, list_jobs, load_job, migrate_legacy_jobs, save_job
+from job_store import create_job, delete_job, duplicate_job, list_jobs, load_job, migrate_legacy_jobs, patch_job, save_job
 from progress_utils import get_cleanvideo_progress
 from queue_runner import queue_runner
 from runner import (
@@ -32,6 +32,7 @@ from runner import (
     is_job_process_running,
     kill_job_process,
     start_job,
+    wait_for_job_process_exit,
 )
 from job_states import ACTIVE_STATUSES
 from schemas import (
@@ -64,7 +65,7 @@ from voice_store import (
     migrate_legacy_voice_profiles,
     save_voice_profile,
 )
-from voice_training_runner import start_voice_training
+from voice_training_runner import GpuBusyError, start_voice_training
 from system_readiness import get_readiness
 
 logging.basicConfig(level=logging.INFO)
@@ -234,12 +235,24 @@ def health():
 
 def _with_voice_progress(profile: dict) -> dict:
     result = dict(profile)
+    status = result.get("trainingStatus")
+    if status == "finished":
+        result["trainingProgressText"] = "声音训练完成"
+        result["trainingProgressPercent"] = 100
+        return result
+    if status not in {"queued", "training", "training_requested"}:
+        return result
     log_path = _host_path(result.get("trainingLogPath"))
     if not log_path.exists():
         return result
 
-    lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    tail = lines[-2000:]
+    try:
+        with log_path.open("rb") as log_file:
+            log_file.seek(0, 2)
+            log_file.seek(max(0, log_file.tell() - 128 * 1024))
+            tail = log_file.read().decode("utf-8", errors="replace").splitlines()[-2000:]
+    except OSError:
+        return result
     progress_text = ""
     progress_percent = None
 
@@ -325,8 +338,13 @@ def get_voice_log(voice_id: str):
     log_path = _host_path(profile.get("trainingLogPath"))
     if not log_path.exists():
         return {"voice_id": voice_id, "log": "", "lines": 0}
-    lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    tail = lines[-200:]
+    try:
+        with log_path.open("rb") as log_file:
+            log_file.seek(0, 2)
+            log_file.seek(max(0, log_file.tell() - 128 * 1024))
+            tail = log_file.read().decode("utf-8", errors="replace").splitlines()[-200:]
+    except OSError:
+        tail = []
     return {"voice_id": voice_id, "log": "\n".join(tail), "lines": len(tail)}
 
 
@@ -364,6 +382,8 @@ def retry_voice_training(voice_id: str):
 
     try:
         pid = start_voice_training(voice_id)
+    except GpuBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"重新启动声音训练失败：{exc}")
 
@@ -402,6 +422,7 @@ async def train_voice(
             continue
         suffix = Path(file.filename).suffix.lower()
         if suffix not in {".wav", ".mp3", ".m4a", ".mp4", ".mov", ".webm"}:
+            shutil.rmtree(voice_dir, ignore_errors=True)
             raise HTTPException(status_code=400, detail=f"不支持的声音素材格式：{file.filename}")
         safe_name = f"{index:04d}_{Path(file.filename).name}"
         dst = raw_dir / safe_name
@@ -419,6 +440,7 @@ async def train_voice(
         saved_files.append({"name": file.filename, "path": str(dst), "size": size})
 
     if not saved_files:
+        shutil.rmtree(voice_dir, ignore_errors=True)
         raise HTTPException(status_code=400, detail="没有收到可用的声音素材文件。")
 
     profile = {
@@ -445,6 +467,8 @@ async def train_voice(
 
     try:
         pid = start_voice_training(voice_id)
+    except GpuBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"启动声音训练失败：{exc}")
 
@@ -712,7 +736,7 @@ def run_job(job_id: str):
     if status == "finished":
         raise HTTPException(
             status_code=400,
-            detail=f"Job {job_id} is already finished. Reset the job to run again.",
+            detail=f"Job {job_id} is already finished. Duplicate it to create a new job.",
         )
 
     try:
@@ -724,6 +748,21 @@ def run_job(job_id: str):
 
     logger.info("Started job %s with PID %d", job_id, pid)
     return JobRunResponse(message="Job started", job_id=job_id, pid=pid)
+
+
+@app.post("/jobs/{job_id}/duplicate")
+def duplicate_job_endpoint(job_id: str):
+    source = load_job(job_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+    if source.get("status") in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="任务仍在运行，完成或取消后才能复制。")
+    if str(source.get("voice_id", "")).startswith("voice_") and not _trained_voice_ready(source):
+        raise HTTPException(status_code=409, detail="原任务使用的自定义声音已不可用，无法复制。")
+    try:
+        return duplicate_job(source)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"复制任务失败：{exc}")
 
 
 @app.get("/jobs/{job_id}/log")
@@ -801,27 +840,63 @@ def cancel_job(job_id: str):
     if status == "finished":
         raise HTTPException(status_code=400, detail="Cannot cancel a finished job.")
 
+    run_id = job.get("run_id")
+    if status in ACTIVE_STATUSES and run_id:
+        if status != "cancelling":
+            changed = patch_job(
+                job_id,
+                run_id,
+                {
+                    "status": "cancelling",
+                    "error_message": "正在停止任务…",
+                    "progress": {"stage": "cancelling", "message": "正在停止任务…"},
+                },
+                ACTIVE_STATUSES - {"cancelling"},
+            )
+            if not changed:
+                latest = load_job(job_id)
+                if latest and latest.get("status") == "cancelled":
+                    return latest
+                raise HTTPException(status_code=409, detail="任务状态刚刚发生变化，请刷新后重试。")
+
+        kill_job_process(job_id)
+        stopped = wait_for_job_process_exit(job_id)
+        if not stopped:
+            kill_job_process(job_id, force=True)
+            stopped = wait_for_job_process_exit(job_id, timeout=8, registration_grace=0)
+        if not stopped:
+            raise HTTPException(status_code=409, detail="任务进程仍在退出，请稍后刷新状态。")
+
+        latest = load_job(job_id)
+        if not latest or latest.get("status") == "cancelled":
+            return latest or job
+        if latest.get("run_id") != run_id or latest.get("status") != "cancelling":
+            return latest
+        if not patch_job(
+            job_id,
+            run_id,
+            {
+                "status": "cancelled",
+                "finished_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                "error_message": "Cancelled by user.",
+                "launcher_pid": None,
+                "process_group_id": None,
+                "progress": {"stage": "cancelled", "message": "Cancelled by user."},
+            },
+            {"cancelling"},
+        ):
+            raise HTTPException(status_code=409, detail="任务状态刚刚发生变化，请刷新后重试。")
+        return load_job(job_id) or job
+
     if status in ACTIVE_STATUSES:
         kill_job_process(job_id)
-
     now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-    job["status"]        = "cancelled"
-    job["finished_at"]   = now
+    job["status"] = "cancelled"
+    job["finished_at"] = now
     job["error_message"] = "Cancelled by user."
     job.setdefault("progress", {})
-    job["progress"]["stage"]   = "cancelled"
-    job["progress"]["message"] = "Cancelled by user."
-    run_id = job.get("run_id")
-    saved = save_job(
-        job,
-        expected_run_id=run_id,
-        allowed_statuses=ACTIVE_STATUSES,
-    ) if run_id else save_job(job)
-    if not saved:
-        latest = load_job(job_id)
-        if latest and latest.get("status") == "cancelled":
-            return latest
-        raise HTTPException(status_code=409, detail="任务状态刚刚发生变化，请刷新后重试。")
+    job["progress"].update({"stage": "cancelled", "message": "Cancelled by user."})
+    save_job(job)
     logger.info("Cancelled job %s (was: %s)", job_id, status)
     return job
 

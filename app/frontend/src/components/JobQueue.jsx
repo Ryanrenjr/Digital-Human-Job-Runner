@@ -1,10 +1,10 @@
 import * as api from '../api'
 
-function StatusBadge({ status }) {
-  return <span className={`status-badge s-${status}`}>{status}</span>
+function StatusBadge({ status, t }) {
+  return <span className={`status-badge s-${status}`}>{t.detail?.stageLabels?.[status] || status}</span>
 }
 
-function CardActions({ job, selected, onSelect, onRun, onCancel, onReset, onDelete, t }) {
+function CardActions({ job, selected, onSelect, onRun, onCancel, onReset, onDuplicate, onDelete, t }) {
   const { job_id, status, artifacts } = job
   const videoExists = artifacts?.clean_video_exists
 
@@ -29,7 +29,7 @@ function CardActions({ job, selected, onSelect, onRun, onCancel, onReset, onDele
       {status === 'pending' && (
         <button className="btn btn-primary btn-xs" onClick={() => onRun(job_id)}>{t.queue.run}</button>
       )}
-      {status === 'running' && (
+      {['starting', 'running', 'collecting'].includes(status) && (
         <button className="btn btn-ghost btn-xs" onClick={() => onCancel(job_id)}>{t.queue.cancel}</button>
       )}
       {(status === 'failed' || status === 'cancelled') && (
@@ -41,14 +41,17 @@ function CardActions({ job, selected, onSelect, onRun, onCancel, onReset, onDele
       {status === 'finished' && videoExists && (
         <button className="btn btn-ghost btn-xs" onClick={handleDownload}>{t.queue.downloadMp4}</button>
       )}
-      {status !== 'running' && (
+      {status === 'finished' && (
+        <button className="btn btn-ghost btn-xs" onClick={() => onDuplicate(job_id)}>{t.queue.duplicate}</button>
+      )}
+      {!['starting', 'running', 'collecting', 'cancelling'].includes(status) && (
         <button className="btn btn-danger btn-xs" onClick={() => onDelete(job_id)}>{t.queue.delete}</button>
       )}
     </div>
   )
 }
 
-function JobCard({ job, selected, onSelect, onRun, onCancel, onReset, onDelete, t }) {
+function JobCard({ job, selected, onSelect, onRun, onCancel, onReset, onDuplicate, onDelete, t }) {
   const pct   = job.progress?.percent ?? 0
   const stage = job.progress?.stage   ?? 'pending'
   const stageLabel = t.detail?.stageLabels?.[stage] || stage
@@ -61,7 +64,7 @@ function JobCard({ job, selected, onSelect, onRun, onCancel, onReset, onDelete, 
     >
       <div className="jc-top">
         <span className="jc-title">{job.title || '(no title)'}</span>
-        <StatusBadge status={job.status} />
+        <StatusBadge status={job.status} t={t} />
       </div>
 
       <div className="jc-meta">
@@ -85,6 +88,7 @@ function JobCard({ job, selected, onSelect, onRun, onCancel, onReset, onDelete, 
           onRun={onRun}
           onCancel={onCancel}
           onReset={onReset}
+          onDuplicate={onDuplicate}
           onDelete={onDelete}
           t={t}
         />
@@ -93,8 +97,8 @@ function JobCard({ job, selected, onSelect, onRun, onCancel, onReset, onDelete, 
   )
 }
 
-export function JobQueue({ jobs, selectedJobId, onSelect, onRun, onCancel, onReset, onDelete, onRefresh, t }) {
-  const running = jobs.filter(j => j.status === 'running').length
+export function JobQueue({ jobs, selectedJobId, onSelect, onRun, onCancel, onReset, onDuplicate, onDelete, onRefresh, t }) {
+  const running = jobs.filter(j => ['starting', 'running', 'collecting', 'cancelling'].includes(j.status)).length
   const pending = jobs.filter(j => j.status === 'pending').length
 
   return (
@@ -123,6 +127,7 @@ export function JobQueue({ jobs, selectedJobId, onSelect, onRun, onCancel, onRes
             onRun={onRun}
             onCancel={onCancel}
             onReset={onReset}
+            onDuplicate={onDuplicate}
             onDelete={onDelete}
             t={t}
           />

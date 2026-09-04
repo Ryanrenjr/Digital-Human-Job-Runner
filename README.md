@@ -71,7 +71,7 @@ The backend reads `DHJR_*` environment variables. Important settings:
 - `DHJR_SUPPORTED_VOICE_IDS`: comma-separated voice IDs accepted by the job preparer
 - `DHJR_ENGINE_WORKSPACE`: read-only engine/model workspace used by the pipeline
 - `DHJR_DATABASE_PATH`: SQLite database for job, voice, and queue metadata
-- `DHJR_CONDA_EXE`: Conda, Miniforge, or Micromamba executable available to WSL
+- `DHJR_CONDA_EXE`: Conda, Miniconda, or Miniforge executable available to WSL (Micromamba is not supported yet)
 - `DHJR_VOXCPM_ENV` and `DHJR_LATENTSYNC_ENV`: model environment names
 - `DHJR_WINDOWS_OUTPUT_DIR`: optional WSL-mounted Windows output folder
 - `DHJR_RUN_SCRIPT` and `DHJR_RUN_VOICE_SCRIPT`: pipeline entry scripts
@@ -85,6 +85,13 @@ The engine workspace contains models and code only. A job runs from its own
 directories, so one job no longer clears or overwrites another job's media.
 The SQLite database is the metadata source; `job.json` and voice `profile.json`
 files remain as readable compatibility mirrors for existing tools.
+
+Video generation and voice training share one local GPU lease. Jobs use the
+run states `starting`, `running`, `collecting`, and `cancelling`; the queue
+waits for the exact process group to exit before starting another GPU task.
+An in-process watchdog also recovers tasks whose process disappears. Completed
+jobs are immutable; use **Duplicate** to create a new job with snapshotted
+inputs.
 
 When a job is created, its avatar video and voice reference audio are snapshotted
 inside the job input directory. Removing a later global asset therefore cannot
