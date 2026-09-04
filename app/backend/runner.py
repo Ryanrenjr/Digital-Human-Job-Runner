@@ -237,7 +237,9 @@ def start_job(job_id: str) -> int:
     run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
     job["status"] = "starting"
     job["run_id"] = run_id
-    job["started_at"] = job.get("started_at") or _now_iso()
+    job["started_at"] = _now_iso()
+    job["finished_at"] = None
+    job["error_message"] = None
     job.setdefault("progress", {}).update({
         "stage": "starting",
         "percent": 0,

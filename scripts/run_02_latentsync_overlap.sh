@@ -29,9 +29,9 @@ PROGRESS_HELPER="${DHJR_PROGRESS_HELPER:-}"
 update_progress() {
   if [ -n "$JOB_ID" ] && [ -n "$PROGRESS_HELPER" ]; then
     if [ -n "${4:-}" ]; then
-      python3 "$PROGRESS_HELPER" "$JOB_ID" "$1" "$2" "$3" "$4" "${5:-0}" || true
+      python3 "$PROGRESS_HELPER" "$JOB_ID" "$2" "$1" "$3" "$4" "${5:-0}" || true
     else
-      python3 "$PROGRESS_HELPER" "$JOB_ID" "$1" "$2" "$3" || true
+      python3 "$PROGRESS_HELPER" "$JOB_ID" "$2" "$1" "$3" || true
     fi
   fi
 }
