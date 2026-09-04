@@ -204,6 +204,10 @@ update_progress 45 latentsync "视频片段已准备，开始处理" 0 "$TOTAL_W
 CURRENT_WINDOW=0
 
 while IFS=',' read -r index core_start core_end core_len padded_start padded_len left_trim <&3; do
+  CURRENT_WINDOW=$((CURRENT_WINDOW + 1))
+  WINDOW_PERCENT=$((45 + (CURRENT_WINDOW - 1) * 50 / TOTAL_WINDOWS))
+  update_progress "$WINDOW_PERCENT" latentsync "正在处理第 $CURRENT_WINDOW / $TOTAL_WINDOWS 个视频片段" "$CURRENT_WINDOW" "$TOTAL_WINDOWS"
+
   video_chunk="$WORK_DIR/video_${index}.mp4"
   audio_chunk="$WORK_DIR/audio_${index}.wav"
   out_chunk="$WORK_DIR/out_${index}.mp4"
@@ -235,7 +239,6 @@ while IFS=',' read -r index core_start core_end core_len padded_start padded_len
     -pix_fmt yuv420p \
     "$core_chunk"
 
-  CURRENT_WINDOW=$((CURRENT_WINDOW + 1))
   WINDOW_PERCENT=$((45 + CURRENT_WINDOW * 50 / TOTAL_WINDOWS))
   update_progress "$WINDOW_PERCENT" latentsync "正在处理第 $CURRENT_WINDOW / $TOTAL_WINDOWS 个视频片段" "$CURRENT_WINDOW" "$TOTAL_WINDOWS"
 
