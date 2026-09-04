@@ -200,6 +200,7 @@ def _build_wsl_command(script: str, job_id: str) -> list[str]:
         "DHJR_JOB_WORKSPACE": f"{job_workspace}/workspace",
         "DHJR_JOB_WORK_DIR": f"{job_workspace}/work",
         "DHJR_AVATAR_VIDEO": f"{job_workspace}/input/avatar.mp4",
+        "DHJR_PIPELINE_SCRIPTS_DIR": f"{app_workspace}/scripts",
         "DHJR_WINDOWS_OUTPUT_DIR": windows_output_dir,
     }
     exports = " ".join(f"{key}={shlex.quote(value)}" for key, value in env.items())

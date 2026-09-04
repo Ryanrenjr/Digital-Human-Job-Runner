@@ -45,6 +45,7 @@ class StorageTests(unittest.TestCase):
         self.assertIn("/jobs/job-a/input", command)
         self.assertIn("/jobs/job-a/output", command)
         self.assertIn("/jobs/job-a/work", command)
+        self.assertIn("DHJR_PIPELINE_SCRIPTS_DIR=", command)
         self.assertNotIn("DigitalHumanOutput", command)
 
 

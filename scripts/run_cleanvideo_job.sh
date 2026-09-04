@@ -3,6 +3,7 @@ set -e
 
 AI_WORKSPACE="${DHJR_WORKSPACE:-$HOME/AI-Workspace}"
 ENGINE_WORKSPACE="${DHJR_ENGINE_WORKSPACE:-$AI_WORKSPACE}"
+PIPELINE_SCRIPTS_DIR="${DHJR_PIPELINE_SCRIPTS_DIR:-$AI_WORKSPACE/scripts}"
 
 if [ $# -ne 1 ]; then
     echo "Usage: bash $(basename "$0") JOB_ID" >&2
@@ -160,14 +161,14 @@ echo "===================================="
 echo "Step 5: LatentSync — generate CleanVideo"
 echo "===================================="
 update_progress latentsync 40 "正在准备视频处理"
-cd "$ENGINE_WORKSPACE/scripts"
+cd "$PIPELINE_SCRIPTS_DIR"
 DHJR_JOB_ID="$JOB_ID" DHJR_PROGRESS_HELPER="$PROGRESS_HELPER" \
 DHJR_INPUT_AUDIO_FULL="$OUTPUT_DIR/voice_for_latentsync.wav" \
 DHJR_MUX_AUDIO_FULL="$OUTPUT_DIR/voice.wav" \
 DHJR_AVATAR_VIDEO="$DHJR_AVATAR_VIDEO" \
 DHJR_OUTPUT_DIR="$OUTPUT_DIR" \
 DHJR_JOB_WORK_DIR="$WORK_DIR" \
-AUDIO_OFFSET=0 bash run_02_latentsync_overlap.sh
+AUDIO_OFFSET=0 bash "$PIPELINE_SCRIPTS_DIR/run_02_latentsync_overlap.sh"
 
 # ============================================================
 echo ""
