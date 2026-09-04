@@ -9,6 +9,8 @@ from pathlib import Path
 from pathlib import PureWindowsPath
 from typing import Optional
 
+from database import claim_job
+from job_states import ACTIVE_STATUSES
 from job_store import list_jobs, load_job, save_job
 from settings import AI_WORKSPACE, RUN_SCRIPT, RUN_VOICE_SCRIPT
 
@@ -23,7 +25,7 @@ _PIPELINE_MARKERS = [
 def check_no_other_running_job(job_id: str) -> Optional[str]:
     """Return the job_id of a running job that is NOT this job, or None."""
     for j in list_jobs():
-        if j.get("status") in {"starting", "running", "collecting"} and j.get("job_id") != job_id:
+        if j.get("status") in ACTIVE_STATUSES and j.get("job_id") != job_id:
             return j["job_id"]
     return None
 
@@ -171,15 +173,17 @@ def _to_wsl_path(path: str | Path) -> str:
         return f"/mnt/{drive}/{parts}"
     if raw.startswith("/"):
         return raw
-    result = subprocess.run(
-        ["wsl", "wslpath", "-a", raw],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Windows 路径转换到 WSL 路径失败。")
-    return result.stdout.strip()
+    resolved = Path(raw).expanduser().resolve()
+    if resolved.drive:
+        win_path = PureWindowsPath(str(resolved))
+        drive = win_path.drive.rstrip(":").lower()
+        parts = "/".join(win_path.parts[1:])
+        return f"/mnt/{drive}/{parts}"
+    return resolved.as_posix()
+
+
+class JobStartConflict(RuntimeError):
+    """Raised when SQLite refuses to reserve a job for a new run."""
 
 
 def _build_wsl_command(script: str, job_id: str) -> list[str]:
@@ -235,16 +239,21 @@ def start_job(job_id: str) -> int:
         raise RuntimeError(f"任务不存在：{job_id}")
 
     run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
-    job["status"] = "starting"
-    job["run_id"] = run_id
-    job["started_at"] = _now_iso()
-    job["finished_at"] = None
-    job["error_message"] = None
-    job.setdefault("progress", {}).update({
-        "stage": "starting",
-        "percent": 0,
-        "message": "正在启动任务",
-    })
+    claim = claim_job(job_id, run_id, _now_iso())
+    if not claim.get("claimed"):
+        reason = claim.get("reason")
+        if reason == "not_found":
+            raise RuntimeError(f"任务不存在：{job_id}")
+        if reason == "finished":
+            raise JobStartConflict("任务已经完成，请先重置任务后再运行。")
+        if reason == "already_active":
+            raise JobStartConflict("任务已经在运行中。")
+        if reason == "another_active":
+            blocker = claim.get("blocking_job_id", "其他任务")
+            raise JobStartConflict(f"另一个任务正在运行：{blocker}。")
+        raise JobStartConflict("任务当前无法启动，请稍后重试。")
+
+    job = claim["job"]
     save_job(job)
 
     if not _trained_voice_ready(job):

@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -11,7 +12,8 @@ os.environ["DHJR_DATABASE_PATH"] = str(TEST_ROOT / "runner.sqlite3")
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from job_store import create_job, delete_job, list_jobs, load_job, save_job
-from runner import _build_wsl_command
+from database import claim_job
+from runner import _build_wsl_command, _to_wsl_path
 from schemas import JobCreateRequest
 
 
@@ -38,7 +40,28 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(load_job(first["job_id"])["status"], "running")
 
         delete_job(first["job_id"])
-        self.assertEqual(len(list_jobs()), 1)
+        delete_job(second["job_id"])
+        self.assertEqual(len(list_jobs()), 0)
+
+    def test_relative_path_conversion_does_not_call_wsl(self):
+        converted = _to_wsl_path("scripts/run_cleanvideo_job.sh")
+        self.assertTrue(converted.endswith("/scripts/run_cleanvideo_job.sh"))
+
+    def test_job_claim_allows_only_one_concurrent_runner(self):
+        job = create_job(self.make_request())
+
+        def claim(run_number):
+            return claim_job(job["job_id"], f"run-{run_number}", "2026-09-04T00:00:00")
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(claim, (1, 2)))
+
+        self.assertEqual(sum(result["claimed"] for result in results), 1)
+        self.assertEqual(
+            {result["reason"] for result in results if not result["claimed"]},
+            {"already_active"},
+        )
+        delete_job(job["job_id"])
 
     def test_pipeline_command_uses_job_directories(self):
         command = " ".join(_build_wsl_command("scripts/run_cleanvideo_job.sh", "job-a"))

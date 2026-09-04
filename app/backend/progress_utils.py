@@ -2,6 +2,7 @@ import json
 import math
 import subprocess
 from pathlib import Path
+from job_states import ACTIVE_STATUSES
 from job_store import load_job
 from settings import FFPROBE_CANDIDATES
 
@@ -57,7 +58,7 @@ def get_cleanvideo_progress(job_id: str) -> dict:
             "message":        "CleanVideo generated successfully",
         }
 
-    if status in ("failed", "cancelled", "pending", "starting"):
+    if status in ((ACTIVE_STATUSES - {"running"}) | {"failed", "cancelled", "pending"}):
         return existing
 
     if status != "running":

@@ -9,6 +9,7 @@ import sqlite3
 from pathlib import Path
 from typing import Iterable, Optional
 
+from job_states import ACTIVE_STATUSES
 from settings import AI_WORKSPACE
 
 
@@ -85,6 +86,61 @@ def upsert_job(job: dict) -> None:
             """,
             (job["job_id"], job.get("status", "pending"), job.get("created_at", now), now, payload),
         )
+
+
+def claim_job(job_id: str, run_id: str, started_at: str) -> dict:
+    """Atomically reserve one job when no other job is active."""
+    init_db()
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+
+        target_row = conn.execute(
+            "SELECT payload FROM jobs WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        if target_row is None:
+            return {"claimed": False, "reason": "not_found"}
+
+        target = json.loads(target_row["payload"])
+        target_status = target.get("status", "pending")
+        if target_status in ACTIVE_STATUSES:
+            return {
+                "claimed": False,
+                "reason": "already_active",
+                "blocking_job_id": job_id,
+            }
+        if target_status == "finished":
+            return {"claimed": False, "reason": "finished"}
+
+        placeholders = ", ".join("?" for _ in ACTIVE_STATUSES)
+        active_rows = conn.execute(
+            f"SELECT job_id FROM jobs WHERE status IN ({placeholders}) AND job_id != ? "
+            "ORDER BY created_at ASC LIMIT 1",
+            (*ACTIVE_STATUSES, job_id),
+        ).fetchone()
+        if active_rows is not None:
+            return {
+                "claimed": False,
+                "reason": "another_active",
+                "blocking_job_id": active_rows["job_id"],
+            }
+
+        target["status"] = "starting"
+        target["run_id"] = run_id
+        target["started_at"] = started_at
+        target["finished_at"] = None
+        target["error_message"] = None
+        target.setdefault("progress", {}).update({
+            "stage": "starting",
+            "percent": 0,
+            "message": "正在启动任务",
+        })
+        target["updated_at"] = started_at
+        payload = json.dumps(target, ensure_ascii=False, separators=(",", ":"))
+        conn.execute(
+            "UPDATE jobs SET status = ?, updated_at = ?, payload = ? WHERE job_id = ?",
+            ("starting", started_at, payload, job_id),
+        )
+        return {"claimed": True, "job": target}
 
 
 def delete_job(job_id: str) -> None:

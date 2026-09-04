@@ -2,6 +2,7 @@
 jobs/
 voices/
 tmp/
+exports/
 
 # ── Background video assets (large binaries) ──
 assets/backgrounds/*.mp4

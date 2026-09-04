@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional
 
 from database import delete_job as db_delete_job
 from database import get_job, list_jobs as db_list_jobs, upsert_job
+from job_states import ACTIVE_STATUSES
 from settings import DEFAULT_VOICE_ID, JOBS_DIR, WINDOWS_OUTPUT_DIR
 
 if TYPE_CHECKING:
@@ -82,7 +83,7 @@ def delete_job(job_id: str) -> None:
 
 def get_running_job() -> Optional[dict]:
     for j in list_jobs():
-        if j.get("status") == "running":
+        if j.get("status") in ACTIVE_STATUSES:
             return j
     return None
 

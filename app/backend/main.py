@@ -25,7 +25,8 @@ from background_utils import (
 from job_store import create_job, delete_job, list_jobs, load_job, save_job
 from progress_utils import get_cleanvideo_progress
 from queue_runner import queue_runner
-from runner import check_no_other_running_job, is_job_process_running, kill_job_process, start_job
+from runner import JobStartConflict, is_job_process_running, kill_job_process, start_job
+from job_states import ACTIVE_STATUSES
 from schemas import (
     HealthResponse,
     JobCreateRequest,
@@ -540,7 +541,7 @@ def delete_background(background_id: str):
         raise HTTPException(status_code=400, detail="Built-in backgrounds cannot be deleted.")
 
     for job in list_jobs():
-        if job.get("status") == "running" and is_job_process_running(job["job_id"]):
+        if job.get("status") in ACTIVE_STATUSES and is_job_process_running(job["job_id"]):
             raise HTTPException(
                 status_code=409,
                 detail="A job is currently running. Stop it before deleting backgrounds.",
@@ -666,7 +667,7 @@ def run_job(job_id: str):
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
     status = job.get("status")
-    if status in {"starting", "running", "collecting"}:
+    if status in ACTIVE_STATUSES:
         raise HTTPException(status_code=400, detail=f"Job {job_id} is already running.")
     if status == "finished":
         raise HTTPException(
@@ -674,15 +675,10 @@ def run_job(job_id: str):
             detail=f"Job {job_id} is already finished. Reset the job to run again.",
         )
 
-    running_other = check_no_other_running_job(job_id)
-    if running_other:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Another job is already running: {running_other}.",
-        )
-
     try:
         pid = start_job(job_id)
+    except JobStartConflict as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start job: {e}")
 
@@ -713,8 +709,8 @@ def delete_job_endpoint(job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
-    if job.get("status") == "running" and is_job_process_running(job_id):
-        raise HTTPException(status_code=409, detail="Cannot delete a running job. Cancel it first.")
+    if job.get("status") in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="任务正在运行，请先取消后再删除。")
 
     job_dir = AI_WORKSPACE / "jobs" / job_id
     shutil.rmtree(job_dir, ignore_errors=True)
@@ -765,7 +761,7 @@ def cancel_job(job_id: str):
     if status == "finished":
         raise HTTPException(status_code=400, detail="Cannot cancel a finished job.")
 
-    if status == "running":
+    if status in ACTIVE_STATUSES:
         kill_job_process(job_id)
 
     now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -789,8 +785,8 @@ def reset_job(job_id: str):
     status = job.get("status")
     if status == "finished":
         raise HTTPException(status_code=400, detail="Cannot reset a finished job.")
-    if status == "running" and is_job_process_running(job_id):
-        raise HTTPException(status_code=409, detail="Job appears to be actively running. Cannot reset.")
+    if status in ACTIVE_STATUSES:
+        raise HTTPException(status_code=409, detail="任务正在运行，请先取消后再重置。")
     if status == "pending":
         return job
 

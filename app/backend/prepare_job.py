@@ -10,6 +10,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from pathlib import PureWindowsPath
+from job_states import ACTIVE_STATUSES
 from settings import (
     BACKGROUNDS_JSON,
     JOBS_DIR,
@@ -89,9 +90,9 @@ def validate_job(job: dict, job_id: str) -> None:
         )
 
     status = job.get("status", "")
-    if status in ("running", "collecting", "finished"):
+    if status in ((ACTIVE_STATUSES - {"starting"}) | {"finished"}):
         raise ValueError(
-            f"Job status is '{status}'. Only pending/failed/cancelled jobs can be prepared."
+            f"Job status is '{status}'. Only pending/failed/cancelled/starting jobs can be prepared."
         )
 
     if job["output_type"] not in ("clean_video", "voice_only"):

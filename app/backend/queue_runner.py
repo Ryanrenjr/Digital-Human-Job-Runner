@@ -8,15 +8,16 @@ from pathlib import Path
 from typing import Optional
 
 from database import get_queue_state, set_queue_state
+from job_states import ACTIVE_STATUSES, DONE_STATUSES
 from job_store import list_jobs, save_job
-from runner import is_job_process_running, start_job
+from runner import JobStartConflict, is_job_process_running, start_job
 from settings import AI_WORKSPACE, SHUTDOWN_EXE
 
 logger = logging.getLogger(__name__)
 
 STATE_PATH   = AI_WORKSPACE / "app/config/queue_state.json"
 
-_DONE = {"finished", "failed", "cancelled"}
+_DONE = DONE_STATUSES
 
 
 class QueueRunner:
@@ -57,7 +58,7 @@ class QueueRunner:
     def recover_stale_jobs(self) -> None:
         """On startup, any job stuck in status=running with no live process → failed."""
         for job in list_jobs():
-            if job.get("status") not in {"starting", "running", "collecting"}:
+            if job.get("status") not in ACTIVE_STATUSES:
                 continue
             job_id = job["job_id"]
             if not is_job_process_running(job_id):
@@ -118,10 +119,9 @@ class QueueRunner:
             s = j.get("status", "unknown")
             counts[s] = counts.get(s, 0) + 1
 
-        active = {"starting", "running", "collecting"}
-        running_job = next((j for j in all_jobs if j.get("status") in active), None)
+        running_job = next((j for j in all_jobs if j.get("status") in ACTIVE_STATUSES), None)
         n_pending   = counts.get("pending", 0)
-        n_running   = sum(counts.get(state, 0) for state in active)
+        n_running   = sum(counts.get(state, 0) for state in ACTIVE_STATUSES)
 
         if n_running > 0:
             status = "paused" if self.paused else "running"
@@ -152,8 +152,6 @@ class QueueRunner:
     def run_next_pending(self) -> Optional[str]:
         """Immediately start the next pending job. Returns job_id or None."""
         all_jobs = list_jobs()
-        if any(j.get("status") in {"starting", "running", "collecting"} for j in all_jobs):
-            return None
         pending = sorted(
             (j for j in all_jobs if j.get("status") == "pending"),
             key=lambda j: j.get("created_at", ""),
@@ -161,7 +159,10 @@ class QueueRunner:
         if not pending:
             return None
         job_id = pending[0]["job_id"]
-        pid = start_job(job_id)
+        try:
+            pid = start_job(job_id)
+        except JobStartConflict:
+            return None
         logger.info("[QueueRunner] run_next_pending → %s (PID %d)", job_id, pid)
         return job_id
 
@@ -171,7 +172,7 @@ class QueueRunner:
             return
 
         all_jobs = list_jobs()
-        if any(j.get("status") in {"starting", "running", "collecting"} for j in all_jobs):
+        if any(j.get("status") in ACTIVE_STATUSES for j in all_jobs):
             return
 
         pending = sorted(
