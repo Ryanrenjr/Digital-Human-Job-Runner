@@ -1,14 +1,18 @@
+from __future__ import annotations
+
 import json
 import logging
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from database import delete_job as db_delete_job
 from database import get_job, list_jobs as db_list_jobs, upsert_job
-from schemas import JobCreateRequest
 from settings import DEFAULT_VOICE_ID, JOBS_DIR, WINDOWS_OUTPUT_DIR
+
+if TYPE_CHECKING:
+    from schemas import JobCreateRequest
 
 logger = logging.getLogger(__name__)
 
