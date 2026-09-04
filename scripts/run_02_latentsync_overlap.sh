@@ -15,6 +15,18 @@ FPS=25
 CORE_SECONDS=6
 PAD_SECONDS=1
 AUDIO_OFFSET="${AUDIO_OFFSET:-0}"
+JOB_ID="${DHJR_JOB_ID:-}"
+PROGRESS_HELPER="${DHJR_PROGRESS_HELPER:-}"
+
+update_progress() {
+  if [ -n "$JOB_ID" ] && [ -n "$PROGRESS_HELPER" ]; then
+    if [ -n "${4:-}" ]; then
+      python3 "$PROGRESS_HELPER" "$JOB_ID" "$1" "$2" "$3" "$4" "${5:-0}" || true
+    else
+      python3 "$PROGRESS_HELPER" "$JOB_ID" "$1" "$2" "$3" || true
+    fi
+  fi
+}
 
 WORK_DIR="data/overlap_full_work"
 INPUT_AUDIO_FULL="$HOME/AI-Workspace/DigitalHumanOutput/voice_for_latentsync.wav"
@@ -37,6 +49,7 @@ cp ~/AI-Workspace/VideoRefs/boss/default/boss_default.mp4 "$RAW_BOSS_VIDEO"
 AUDIO_DUR=$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$INPUT_AUDIO")
 echo "Full audio duration: $AUDIO_DUR seconds"
 echo "Audio offset for LatentSync: $AUDIO_OFFSET seconds"
+update_progress 42 latentsync "正在准备视频片段"
 
 echo "Creating full loop boss video..."
 ffmpeg -y -nostdin -stream_loop -1 -i "$RAW_BOSS_VIDEO" \
@@ -182,6 +195,9 @@ PY
 echo "Running LatentSync overlap windows..."
 
 exec 3< "$WORK_DIR/windows_meta.csv"
+TOTAL_WINDOWS=$(wc -l < "$WORK_DIR/windows_meta.csv")
+update_progress 45 latentsync "视频片段已准备，开始处理" 0 "$TOTAL_WINDOWS"
+CURRENT_WINDOW=0
 
 while IFS=',' read -r index core_start core_end core_len padded_start padded_len left_trim <&3; do
   video_chunk="$WORK_DIR/video_${index}.mp4"
@@ -215,11 +231,16 @@ while IFS=',' read -r index core_start core_end core_len padded_start padded_len
     -pix_fmt yuv420p \
     "$core_chunk"
 
+  CURRENT_WINDOW=$((CURRENT_WINDOW + 1))
+  WINDOW_PERCENT=$((45 + CURRENT_WINDOW * 50 / TOTAL_WINDOWS))
+  update_progress "$WINDOW_PERCENT" latentsync "正在处理第 $CURRENT_WINDOW / $TOTAL_WINDOWS 个视频片段" "$CURRENT_WINDOW" "$TOTAL_WINDOWS"
+
 done
 
 exec 3<&-
 
 echo "Concatenating core windows..."
+update_progress 96 latentsync "正在合并视频片段"
 
 CONCAT_FILE="$WORK_DIR/concat_core.txt"
 rm -f "$CONCAT_FILE"

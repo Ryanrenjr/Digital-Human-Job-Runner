@@ -12,6 +12,7 @@ fi
 JOB_ID="$1"
 JOB_DIR="$AI_WORKSPACE/jobs/$JOB_ID"
 JOB_JSON="$JOB_DIR/job.json"
+PROGRESS_HELPER="$AI_WORKSPACE/app/backend/progress_update.py"
 LOG_DIR="$JOB_DIR/logs"
 LOG_FILE="$LOG_DIR/run.log"
 
@@ -58,6 +59,14 @@ PYEOF
 
 trap 'fail_job "Command failed at line $LINENO"' ERR
 
+update_progress() {
+    if [ -n "${4:-}" ]; then
+        python3 "$PROGRESS_HELPER" "$JOB_ID" "$1" "$2" "$3" "$4" "${5:-0}" || true
+    else
+        python3 "$PROGRESS_HELPER" "$JOB_ID" "$1" "$2" "$3" || true
+    fi
+}
+
 if [ ! -f "$JOB_JSON" ]; then
     fail_job "job.json not found: $JOB_JSON"
 fi
@@ -68,16 +77,19 @@ echo "===================================="
 echo "Step 1: Prepare job"
 echo "===================================="
 python3 "$AI_WORKSPACE/app/backend/prepare_job.py" "$JOB_ID"
+update_progress prepared 2 "任务已准备，开始生成声音"
 
 # ============================================================
 echo ""
 echo "===================================="
 echo "Step 2: VoxCPM2 voice generation"
 echo "===================================="
+update_progress voice_generation 5 "正在加载声音模型"
 cd "$ENGINE_WORKSPACE/projects/VoxCPM"
 source "$HOME/miniconda3/etc/profile.d/conda.sh"
 conda activate voxcpm
-PYTHONPATH="$ENGINE_WORKSPACE/projects/VoxCPM:$PYTHONPATH" python "$AI_WORKSPACE/scripts/generate_voice_dynamic.py"
+DHJR_JOB_ID="$JOB_ID" DHJR_PROGRESS_HELPER="$PROGRESS_HELPER" PYTHONPATH="$ENGINE_WORKSPACE/projects/VoxCPM:$PYTHONPATH" python "$AI_WORKSPACE/scripts/generate_voice_dynamic.py"
+update_progress voice_ready 85 "声音生成完成，正在保存文件"
 
 # ============================================================
 echo ""
@@ -109,6 +121,7 @@ echo ""
 echo "===================================="
 echo "Step 5: Collect voice output"
 echo "===================================="
+update_progress collecting_output 97 "正在保存声音文件"
 python3 "$AI_WORKSPACE/app/backend/collect_voice_output.py" "$JOB_ID"
 
 echo ""

@@ -12,6 +12,7 @@ fi
 JOB_ID="$1"
 JOB_DIR="$AI_WORKSPACE/jobs/$JOB_ID"
 JOB_JSON="$JOB_DIR/job.json"
+PROGRESS_HELPER="$AI_WORKSPACE/app/backend/progress_update.py"
 LOG_DIR="$JOB_DIR/logs"
 LOG_FILE="$LOG_DIR/run.log"
 OUTPUT_DIR="${DHJR_OUTPUT_DIR:-$ENGINE_WORKSPACE/DigitalHumanOutput}"
@@ -69,6 +70,14 @@ PYEOF
 
 trap 'fail_job "Command failed at line $LINENO"' ERR
 
+update_progress() {
+    if [ -n "${4:-}" ]; then
+        python3 "$PROGRESS_HELPER" "$JOB_ID" "$1" "$2" "$3" "$4" "${5:-0}" || true
+    else
+        python3 "$PROGRESS_HELPER" "$JOB_ID" "$1" "$2" "$3" || true
+    fi
+}
+
 # --- Shutdown handler (post-success, non-fatal) ---
 maybe_shutdown_after_done() {
     local job_json="$1"
@@ -119,16 +128,19 @@ echo "===================================="
 echo "Step 1: Prepare job"
 echo "===================================="
 python3 "$AI_WORKSPACE/app/backend/prepare_job.py" "$JOB_ID"
+update_progress prepared 2 "任务已准备，开始生成声音"
 
 # ============================================================
 echo ""
 echo "===================================="
 echo "Step 2: VoxCPM2 voice generation"
 echo "===================================="
+update_progress voice_generation 5 "正在加载声音模型"
 cd "$ENGINE_WORKSPACE/projects/VoxCPM"
 source "$HOME/miniconda3/etc/profile.d/conda.sh"
 conda activate voxcpm
-PYTHONPATH="$ENGINE_WORKSPACE/projects/VoxCPM:$PYTHONPATH" python "$AI_WORKSPACE/scripts/generate_voice_dynamic.py"
+DHJR_JOB_ID="$JOB_ID" DHJR_PROGRESS_HELPER="$PROGRESS_HELPER" PYTHONPATH="$ENGINE_WORKSPACE/projects/VoxCPM:$PYTHONPATH" python "$AI_WORKSPACE/scripts/generate_voice_dynamic.py"
+update_progress voice_ready 35 "声音生成完成，开始准备视频"
 
 # ============================================================
 echo ""
@@ -159,8 +171,9 @@ echo ""
 echo "===================================="
 echo "Step 5: LatentSync — generate CleanVideo"
 echo "===================================="
+update_progress latentsync 40 "正在准备视频处理"
 cd "$ENGINE_WORKSPACE/scripts"
-AUDIO_OFFSET=0 bash run_02_latentsync_overlap.sh
+DHJR_JOB_ID="$JOB_ID" DHJR_PROGRESS_HELPER="$PROGRESS_HELPER" AUDIO_OFFSET=0 bash run_02_latentsync_overlap.sh
 
 # ============================================================
 echo ""
@@ -184,6 +197,7 @@ echo ""
 echo "===================================="
 echo "Step 7: Collect output"
 echo "===================================="
+update_progress collecting_output 97 "视频处理完成，正在整理输出文件"
 python3 "$AI_WORKSPACE/app/backend/collect_output.py" "$JOB_ID"
 
 # ============================================================

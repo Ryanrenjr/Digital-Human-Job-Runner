@@ -65,6 +65,11 @@ def get_cleanvideo_progress(job_id: str) -> dict:
     if status != "running":
         return existing
 
+    # Pipeline scripts write explicit progress updates. Keep those values; the
+    # filesystem fallback below is only for older jobs or an early startup gap.
+    if existing.get("stage") not in {None, "pending", "prepared"} and "percent" in existing:
+        return existing
+
     # --- Dynamic detection for running jobs ---
     try:
         # A: voice not yet generated — still in VoxCPM2 / postprocess
@@ -73,8 +78,8 @@ def get_cleanvideo_progress(job_id: str) -> dict:
                 "stage":          "voice_generation",
                 "current_window": 0,
                 "total_windows":  0,
-                "percent":        5,
-                "message":        "Generating voice audio",
+                "percent":        max(2, existing.get("percent", 2)),
+                "message":        existing.get("message", "正在生成声音"),
             }
 
         # C: clean_video exists but job not marked finished — collecting output
@@ -83,8 +88,8 @@ def get_cleanvideo_progress(job_id: str) -> dict:
                 "stage":          "collecting_output",
                 "current_window": existing.get("current_window", 0),
                 "total_windows":  existing.get("total_windows", 0),
-                "percent":        95,
-                "message":        "Collecting output files",
+                "percent":        97,
+                "message":        "正在整理输出文件",
             }
 
         # B: LatentSync in progress
@@ -104,7 +109,7 @@ def get_cleanvideo_progress(job_id: str) -> dict:
             "current_window": current_window,
             "total_windows":  total_windows,
             "percent":        percent,
-            "message":        f"Processing window {current_window} / {total_windows}",
+            "message":        f"正在处理第 {current_window} / {total_windows} 个视频片段",
         }
 
     except Exception:

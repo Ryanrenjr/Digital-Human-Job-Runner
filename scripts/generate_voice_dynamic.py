@@ -25,6 +25,9 @@ DEFAULT_REF_TEXT = "这个人叫彼得·曼德尔森,他是英国政坛可不是
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SEG_DIR.mkdir(parents=True, exist_ok=True)
 
+JOB_ID = os.environ.get("DHJR_JOB_ID", "")
+PROGRESS_HELPER = os.environ.get("DHJR_PROGRESS_HELPER", "")
+
 PAUSE_SECONDS = 0.06
 MAX_SEGMENT_CHARS = 54
 MAX_SEGMENT_SECONDS = 12.0
@@ -117,6 +120,15 @@ def read_voice_profile() -> dict:
     if not p.exists():
         return {}
     return json.loads(p.read_text(encoding="utf-8"))
+
+
+def update_progress(percent: int, message: str) -> None:
+    if not JOB_ID or not PROGRESS_HELPER:
+        return
+    subprocess.run(
+        ["python3", PROGRESS_HELPER, JOB_ID, "voice_generation", str(percent), message],
+        check=False,
+    )
 
 
 def keywords_for_text(text: str, keywords: list[str]) -> list[str]:
@@ -214,6 +226,7 @@ def main():
         print(f"{i:03d}. len={len(seg)} | {seg}")
 
     print("Loading VoxCPM2 + LoRA...")
+    update_progress(8, "正在加载声音模型")
     from voxcpm.model.voxcpm import LoRAConfig
     lora_info = json.loads((lora_ckpt_dir / "lora_config.json").read_text(encoding="utf-8"))
     lora_cfg = LoRAConfig(**lora_info["lora_config"])
@@ -225,6 +238,7 @@ def main():
         lora_weights_path=str(lora_ckpt_dir),
     )
     print("Model + LoRA loaded.")
+    update_progress(12, "声音模型已加载，开始生成语音")
 
     for f in SEG_DIR.glob("segment_*.wav"):
         f.unlink()
@@ -239,6 +253,8 @@ def main():
         raw_path = SEG_DIR / f"segment_{i:03d}.raw.wav"
         print(f"\nGenerating segment {i}/{len(segments)}")
         print(text)
+        segment_percent = 12 + round((i - 1) / max(1, len(segments)) * 20)
+        update_progress(segment_percent, f"正在生成第 {i} / {len(segments)} 段声音")
         wav = model.generate(
             text=text,
             prompt_wav_path=str(ref_wav),
@@ -273,9 +289,11 @@ def main():
         current = end + PAUSE_SECONDS
         print(f"Saved: {out_path}")
         print(f"Duration: {dur:.2f}s | Start: {start:.2f}s | End: {end:.2f}s")
+        update_progress(12 + round(i / max(1, len(segments)) * 20), f"已完成第 {i} / {len(segments)} 段声音")
 
     voice_path = OUTPUT_DIR / "voice.wav"
     concat_audio(segment_paths, voice_path, PAUSE_SECONDS)
+    update_progress(34, "正在整理声音并校准时长")
     total_duration = get_duration(voice_path)
 
     data = {

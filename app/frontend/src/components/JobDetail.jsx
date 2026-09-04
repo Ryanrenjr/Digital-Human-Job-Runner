@@ -19,6 +19,7 @@ function ProgressBox({ job, t }) {
   const msg   = job.progress?.message         ?? ''
   const curW  = job.progress?.current_window  ?? 0
   const totW  = job.progress?.total_windows   ?? 0
+  const stageLabel = t.detail.stageLabels?.[stage] || stage
 
   const fillColor =
     job.status === 'finished'  ? 'var(--success)' :
@@ -30,7 +31,7 @@ function ProgressBox({ job, t }) {
     <div className="progress-box">
       <div className="progress-box-header">
         <span className="progress-box-label">{t.detail.progressLabel}</span>
-        <span className="progress-box-pct">{stage} · {pct}%</span>
+        <span className="progress-box-pct">{stageLabel} · {pct}%</span>
       </div>
       <div className="progress-box-track">
         <div className="progress-box-fill" style={{ width: `${pct}%`, background: fillColor }} />

@@ -51,6 +51,7 @@ function CardActions({ job, selected, onSelect, onRun, onCancel, onReset, onDele
 function JobCard({ job, selected, onSelect, onRun, onCancel, onReset, onDelete, t }) {
   const pct   = job.progress?.percent ?? 0
   const stage = job.progress?.stage   ?? 'pending'
+  const stageLabel = t.detail?.stageLabels?.[stage] || stage
   const date  = job.created_at?.slice(0, 10) ?? ''
 
   return (
@@ -76,7 +77,7 @@ function JobCard({ job, selected, onSelect, onRun, onCancel, onReset, onDelete, 
       </div>
 
       <div className="jc-bottom">
-        <span className="jc-stage">{stage} · {date}</span>
+        <span className="jc-stage">{stageLabel} · {pct}% · {date}</span>
         <CardActions
           job={job}
           selected={selected}
