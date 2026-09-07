@@ -10,6 +10,8 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
+from ollama_archive import consume_member, extract_member
+
 DEST_DIR     = Path.home() / ".local"
 LLAMA_SERVER = DEST_DIR / "lib" / "ollama" / "llama-server"
 DOWNLOAD_URL = "https://ollama.com/download/ollama-linux-amd64.tar.zst"
@@ -56,13 +58,9 @@ def main():
                         if skip:
                             # In streaming mode we must consume the data explicitly
                             # (tarfile doesn't auto-skip on continue)
-                            if member.isfile() and member.size > 0:
-                                f = tar.extractfile(member)
-                                if f:
-                                    while f.read(1 << 16):
-                                        pass
+                            consume_member(tar, member)
                             continue
-                        tar.extract(member, path=str(DEST_DIR), filter="data")
+                        extract_member(tar, member, DEST_DIR)
                         if member.size > 0:
                             extracted += 1
                             if extracted <= 10 or extracted % 10 == 0:

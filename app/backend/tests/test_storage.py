@@ -18,6 +18,7 @@ from database import claim_gpu_lease, claim_job, get_gpu_lease, release_gpu_leas
 from job_store import build_paths, patch_job
 from runner import _build_wsl_command, _to_wsl_path
 import runner
+import script_assistant
 from schemas import JobCreateRequest
 
 
@@ -160,6 +161,18 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(current["launcher_pid"], 1234)
         self.assertEqual(current["progress"]["percent"], 8)
         delete_job(job["job_id"])
+
+    def test_native_windows_ollama_runner_is_detected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            install_dir = Path(tmp) / "Ollama"
+            ollama_bin = install_dir / "ollama.exe"
+            runner_bin = install_dir / "lib" / "ollama" / "llama-server.exe"
+            runner_bin.parent.mkdir(parents=True)
+            ollama_bin.write_bytes(b"ollama")
+            runner_bin.write_bytes(b"runner")
+
+            with patch.object(script_assistant, "_find_ollama_bin", return_value=str(ollama_bin)):
+                self.assertEqual(Path(script_assistant._find_runner_bin()), runner_bin.resolve())
 
 
 if __name__ == "__main__":

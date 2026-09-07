@@ -12,6 +12,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from ollama_archive import consume_member, extract_member
+
 DEST_DIR      = Path.home() / ".local"
 OLLAMA_BIN    = DEST_DIR / "bin" / "ollama"
 LLAMA_SERVER  = DEST_DIR / "lib" / "ollama" / "llama-server"
@@ -60,18 +62,14 @@ def main():
                 with tarfile.open(fileobj=zstd_reader, mode="r|") as tar:
                     for member in tar:
                         if should_extract(member.name):
-                            tar.extract(member, path=str(DEST_DIR), filter="data")
+                            extract_member(tar, member, DEST_DIR)
                             if member.size > 0:
                                 extracted += 1
                                 if extracted % 5 == 0:
                                     log(f"[install] Extracted {extracted} files so far …")
                         else:
                             # Streaming mode: must consume data to advance stream
-                            if member.isfile() and member.size > 0:
-                                f = tar.extractfile(member)
-                                if f:
-                                    while f.read(1 << 16):
-                                        pass
+                            consume_member(tar, member)
     except Exception as exc:
         log(f"[install] ERROR during download/extract: {exc}")
         sys.exit(1)

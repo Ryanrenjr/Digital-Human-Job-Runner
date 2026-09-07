@@ -3,7 +3,13 @@ import * as api from '../api'
 
 const DEFAULT_MODEL   = 'qwen2.5:7b'
 const POLL_INTERVAL   = 5000   // ms between auto-polls
-const KNOWN_MODELS    = ['qwen2.5:7b', 'qwen2.5:14b', 'qwen2.5:3b', 'qwen2.5:1.5b']
+const KNOWN_MODELS    = ['qwen2.5:7b', 'qwen2.5:14b', 'qwen2.5:3b', 'qwen2.5:1.5b', 'qwen3:32b']
+
+function chooseAvailableModel(models, current) {
+  if (!models?.length || models.includes(current)) return current
+  const preferred = ['qwen2.5:14b', 'qwen3:32b', 'qwen2.5:7b', 'qwen2.5:3b', 'qwen2.5:1.5b']
+  return preferred.find(name => models.includes(name)) || models[0]
+}
 
 export function AIScriptAssistant({ onApply, t }) {
   const [expanded,       setExpanded]       = useState(false)
@@ -37,6 +43,28 @@ export function AIScriptAssistant({ onApply, t }) {
   // Pull model flow
   const [pullingModel,   setPullingModel]   = useState(false)
   const [pullStatus,     setPullStatus]     = useState(null)       // {installed,running,log_tail}
+
+  // The default model may not be installed on a new machine. Follow the
+  // actual Ollama inventory so users do not have to diagnose this themselves.
+  useEffect(() => {
+    const available = healthInfo?.available_models || []
+    if (!available.length || available.includes(model)) return
+    const nextModel = chooseAvailableModel(available, model)
+    setModel(nextModel)
+    setHealthInfo(prev => {
+      if (!prev) return prev
+      const runnerReady = prev.runner_ok !== false
+      return {
+        ...prev,
+        model: nextModel,
+        model_found: true,
+        ok: runnerReady,
+        message: runnerReady ? 'ready' : 'runner_missing',
+        user_message: runnerReady ? 'AI is ready' : prev.user_message,
+        user_message_zh: runnerReady ? 'AI 可以使用' : prev.user_message_zh,
+      }
+    })
+  }, [healthInfo?.available_models, model])
 
   const setField = (key, val) =>
     setEditResult(r => ({ ...r, [key]: val }))
@@ -218,22 +246,27 @@ export function AIScriptAssistant({ onApply, t }) {
     try {
       const health = await api.checkScriptHealth(model)
       setHealthInfo(health)
-      if (health.ok) return
+      const selectedModel = chooseAvailableModel(health.available_models, model)
+      const effectiveHealth = selectedModel === model
+        ? health
+        : { ...health, model: selectedModel, model_found: true, ok: health.runner_ok !== false }
+      if (selectedModel !== model) setModel(selectedModel)
+      if (effectiveHealth.ok) return
 
-      if (!health.ollama_installed) return   // show install wizard, user must install manually
+      if (!effectiveHealth.ollama_installed) return   // show install wizard, user must install manually
 
-      if (!health.ollama_running) {
+      if (!effectiveHealth.ollama_running) {
         await handleStartOllamaInternal()    // starts Ollama + re-checks health internally
         return
       }
 
-      if (health.runner_ok === false) {
+      if (effectiveHealth.runner_ok === false) {
         await handleRepairRunners()
         return
       }
 
-      if (!health.model_found) {
-        await handlePullModel()
+      if (!effectiveHealth.model_found) {
+        await handlePullModel(selectedModel)
       }
     } catch (e) {
       setError(parseError(e))
@@ -244,11 +277,11 @@ export function AIScriptAssistant({ onApply, t }) {
 
   // ── Step 3: Pull model ────────────────────────────────────────────────────
 
-  const handlePullModel = async () => {
+  const handlePullModel = async (requestedModel = model) => {
     setPullingModel(true)
     setPullStatus(null)
     try {
-      const res = await api.pullModel(model)
+      const res = await api.pullModel(requestedModel)
       if (res.ok) {
         setPullStatus({ running: res.started && !res.installed, installed: !!res.installed, log_tail: '' })
       } else {
@@ -530,7 +563,9 @@ export function AIScriptAssistant({ onApply, t }) {
                   ...(healthInfo?.available_models || []),
                   model,
                 ])].filter(Boolean).map(m => (
-                  <option key={m} value={m}>{m}</option>
+                  <option key={m} value={m}>
+                    {m}{healthInfo?.available_models?.length && !healthInfo.available_models.includes(m) ? '（未安装）' : ''}
+                  </option>
                 ))}
               </select>
             </div>

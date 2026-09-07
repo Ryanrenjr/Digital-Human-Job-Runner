@@ -663,7 +663,7 @@ export const translations = {
       repairInProgress:     '正在下载运行组件（约 1.4G）…',
       repairFailed:         '修复失败，请查看下方日志',
       repairDone:           '运行组件已修复 ✓',
-      runnerError:          '运行组件缺失，请点击"修复运行组件"。',
+      runnerError:          '本地模型服务缺少运行组件，请点击下方按钮修复。',
     },
     detail: {
       title:        '任务详情',

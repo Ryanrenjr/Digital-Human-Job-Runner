@@ -57,6 +57,26 @@ def _find_ollama_bin() -> str:
     return ""
 
 
+def _find_runner_bin() -> str:
+    """Find the runner in both native Ollama installs and Linux user installs."""
+    candidates = [
+        LLAMA_SERVER_BIN,
+        Path("/usr/local/lib/ollama/llama-server"),
+        Path("/usr/lib/ollama/llama-server"),
+    ]
+    ollama_bin = _find_ollama_bin()
+    if ollama_bin:
+        install_dir = Path(ollama_bin).resolve().parent
+        candidates.extend([
+            install_dir / "lib" / "ollama" / "llama-server.exe",
+            install_dir / "lib" / "ollama" / "llama-server",
+        ])
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    return ""
+
+
 def _is_ollama_running() -> bool:
     req = urllib.request.Request(f"{OLLAMA_BASE}/api/tags", method="GET")
     try:
@@ -80,7 +100,7 @@ def _get_available_models() -> list:
 
 def _check_health_sync(model: str) -> dict:
     ollama_installed = bool(_find_ollama_bin())
-    runner_ok        = LLAMA_SERVER_BIN.exists()
+    runner_ok        = bool(_find_runner_bin())
 
     req = urllib.request.Request(f"{OLLAMA_BASE}/api/tags", method="GET")
     try:
@@ -145,7 +165,7 @@ def _install_ollama_sync() -> dict:
     python_bin = sys.executable
 
     try:
-        with open(log_path, "w") as lf:
+        with open(log_path, "w", encoding="utf-8", errors="replace") as lf:
             proc = subprocess.Popen(
                 [python_bin, str(installer)],
                 stdout=lf,
@@ -214,7 +234,7 @@ _REPAIR_PROC: Optional[subprocess.Popen] = None
 def _repair_runners_sync() -> dict:
     global _REPAIR_PROC
 
-    if LLAMA_SERVER_BIN.exists():
+    if _find_runner_bin():
         return {
             "ok": True, "already_ok": True,
             "message": "CPU runner already present",
@@ -236,7 +256,7 @@ def _repair_runners_sync() -> dict:
     python_bin = sys.executable
 
     try:
-        with open(log_path, "w") as lf:
+        with open(log_path, "w", encoding="utf-8", errors="replace") as lf:
             proc = subprocess.Popen(
                 [python_bin, str(repairer)],
                 stdout=lf,
@@ -259,7 +279,7 @@ def _repair_runners_sync() -> dict:
 
 
 def _repair_status_sync() -> dict:
-    runner_ok = LLAMA_SERVER_BIN.exists()
+    runner_ok = bool(_find_runner_bin())
 
     proc    = _REPAIR_PROC
     running = proc is not None and proc.poll() is None

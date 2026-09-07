@@ -985,7 +985,7 @@ async def script_health(model: str = "qwen2.5:7b"):
         result["user_message_zh"] = "Ollama 未启动，请先启动 Ollama。"
     elif msg_raw == "runner_missing":
         result["user_message"] = "CPU runner missing. Please repair Ollama installation."
-        result["user_message_zh"] = "CPU 运行库缺失，请修复 Ollama 安装。"
+        result["user_message_zh"] = "本地模型服务缺少运行组件，请点击下方按钮修复。"
     elif msg_raw.startswith("model_not_found:"):
         m = msg_raw.split(":", 1)[1]
         result["user_message"] = f"Model not found. Run: ollama pull {m}"
