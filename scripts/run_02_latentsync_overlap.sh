@@ -11,13 +11,17 @@ LATENTSYNC_PROJECT="${DHJR_LATENTSYNC_PROJECT:-$ENGINE_WORKSPACE/projects/Latent
 OUTPUT_DIR="${DHJR_OUTPUT_DIR:-$PWD/output}"
 JOB_WORK_DIR="${DHJR_JOB_WORK_DIR:-$LATENTSYNC_PROJECT/data/overlap_full_work}"
 AVATAR_VIDEO="${DHJR_AVATAR_VIDEO:-$ENGINE_WORKSPACE/VideoRefs/default/avatar.mp4}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/activate_conda_env.sh"
 
 cd "$LATENTSYNC_PROJECT"
 
 CONDA_EXE="${DHJR_CONDA_EXE:-conda}"
 LATENTSYNC_ENV="${DHJR_LATENTSYNC_ENV:-latentsync}"
-eval "$(\"$CONDA_EXE\" shell.bash hook)"
-conda activate "$LATENTSYNC_ENV"
+if ! dhjr_activate_conda_env "$CONDA_EXE" "$LATENTSYNC_ENV"; then
+  echo "[ERROR] WSL 中找不到 Conda 环境管理器或环境 '$LATENTSYNC_ENV'，请检查 Miniconda/Miniforge 安装。" >&2
+  exit 1
+fi
 
 FPS=25
 CORE_SECONDS=6
