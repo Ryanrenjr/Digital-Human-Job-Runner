@@ -5,6 +5,7 @@ AI_WORKSPACE="${DHJR_WORKSPACE:-$HOME/AI-Workspace}"
 ENGINE_WORKSPACE="${DHJR_ENGINE_WORKSPACE:-$HOME/AI-Workspace}"
 OFFICIAL_VOXCPM="${DHJR_VOXCPM_OFFICIAL:-$ENGINE_WORKSPACE/projects/VoxCPM-official}"
 PRETRAINED_PATH="${DHJR_VOXCPM_PRETRAINED:-$ENGINE_WORKSPACE/projects/VoxCPM/pretrained_models/VoxCPM2}"
+. "$AI_WORKSPACE/scripts/activate_conda_env.sh"
 
 if [ $# -ne 1 ]; then
     echo "Usage: bash run_voice_training.sh VOICE_ID" >&2
@@ -88,8 +89,9 @@ VOXCPM_ENV="${DHJR_VOXCPM_ENV:-voxcpm}"
 if [ "$CONDA_EXE" = "micromamba" ]; then
     fail_voice "暂不支持 Micromamba，请使用 Conda、Miniconda 或 Miniforge。"
 fi
-eval "$(\"$CONDA_EXE\" shell.bash hook)"
-conda activate "$VOXCPM_ENV"
+if ! dhjr_activate_conda_env "$CONDA_EXE" "$VOXCPM_ENV"; then
+    fail_voice "WSL 中找不到 Conda 环境管理器或环境 '$VOXCPM_ENV'，请检查 Miniconda/Miniforge 安装。"
+fi
 PYTHONPATH="$AI_WORKSPACE/app/backend:$OFFICIAL_VOXCPM/src:$PYTHONPATH" TRAIN_RAW_WAV_DIR="$RAW_WAV_DIR" TRAIN_CLIPS_DIR="$CLIPS_DIR" python "$AI_WORKSPACE/scripts/voice_slice_audio.py"
 
 echo ""

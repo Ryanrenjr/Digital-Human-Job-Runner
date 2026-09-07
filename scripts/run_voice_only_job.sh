@@ -3,6 +3,7 @@ set -e
 
 AI_WORKSPACE="${DHJR_WORKSPACE:-$HOME/AI-Workspace}"
 ENGINE_WORKSPACE="${DHJR_ENGINE_WORKSPACE:-$AI_WORKSPACE}"
+. "$AI_WORKSPACE/scripts/activate_conda_env.sh"
 
 if [ $# -ne 1 ]; then
     echo "Usage: bash $(basename "$0") JOB_ID" >&2
@@ -85,8 +86,9 @@ VOXCPM_ENV="${DHJR_VOXCPM_ENV:-voxcpm}"
 if [ "$CONDA_EXE" = "micromamba" ]; then
     fail_job "暂不支持 Micromamba，请使用 Conda、Miniconda 或 Miniforge。"
 fi
-eval "$(\"$CONDA_EXE\" shell.bash hook)"
-conda activate "$VOXCPM_ENV"
+if ! dhjr_activate_conda_env "$CONDA_EXE" "$VOXCPM_ENV"; then
+    fail_job "WSL 中找不到 Conda 环境管理器或环境 '$VOXCPM_ENV'，请检查 Miniconda/Miniforge 安装。"
+fi
 DHJR_JOB_ID="$JOB_ID" DHJR_PROGRESS_HELPER="$PROGRESS_HELPER" PYTHONPATH="$ENGINE_WORKSPACE/projects/VoxCPM:$PYTHONPATH" python "$AI_WORKSPACE/scripts/generate_voice_dynamic.py"
 update_progress voice_ready 85 "声音生成完成，正在保存文件"
 
