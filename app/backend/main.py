@@ -35,6 +35,7 @@ from runner import (
     start_job,
     wait_for_job_process_exit,
 )
+from database import database_health
 from job_states import ACTIVE_STATUSES
 from schemas import (
     HealthResponse,
@@ -227,6 +228,7 @@ def health():
         status="ok",
         service=APP_NAME,
         version=APP_VERSION,
+        database=database_health(),
     )
 
 
@@ -753,6 +755,7 @@ def create_job_endpoint(req: JobCreateRequest):
         voice_data = None
         if voice_profile:
             voice_data = {
+                "name": voice_profile.get("name", ""),
                 "checkpoint_path": voice_profile.get("checkpointPath"),
                 "reference_wav_path": voice_profile.get("referenceWavPath"),
                 "reference_text": voice_profile.get("referenceText", ""),

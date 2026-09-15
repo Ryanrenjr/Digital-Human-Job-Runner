@@ -3,6 +3,21 @@
 
 ---
 
+## 1.3.3 — Segment Boundary Smoothing
+
+**Version:** 1.3.3
+**Status:** Working
+**Date:** 2026-09-15
+
+### 修复内容
+
+- 仅裁剪每个 TTS segment 的头尾静音，保留句内自然停顿
+- 按 technical split、标点、问句和段落使用不同 pause
+- technical split 和逗号边界增加极短 crossfade
+- 输出 `voice_boundaries.json` 与可选 debug / before-after WAV
+
+---
+
 ## 1.3.2 — VoxCPM2 Full Voice Engine
 
 **Version:** 1.3.2

@@ -50,6 +50,14 @@ def main():
     if job is None:
         fail_job(None, f"SQLite 中找不到任务：{job_id}")
 
+    recovery_mode = os.getenv("DHJR_RECOVER_VOICE_OUTPUT", "").strip().lower() in {
+        "1", "true", "yes"
+    }
+    allowed_statuses = ACTIVE_STATUSES - {"cancelling"}
+    if recovery_mode:
+        allowed_statuses = allowed_statuses | {"failed"}
+        print("[INFO] Recovery mode enabled: reusing existing voice output without regeneration")
+
     job_output_dir = JOBS_DIR / job_id / "output"
     voice_src = job_output_dir / "voice.wav"
     if not voice_src.exists():
@@ -96,7 +104,7 @@ def main():
             job_id,
             run_id,
             {"status": "finished", "finished_at": finished_at, "error_message": None, "progress": progress, "paths": paths},
-            ACTIVE_STATUSES - {"cancelling"},
+            allowed_statuses,
         ) if run_id else save_job({**job, "status": "finished", "finished_at": finished_at, "error_message": None, "progress": progress, "paths": paths})
         if not saved:
             fail_job(None, "任务已被取消，拒绝写入完成状态。")

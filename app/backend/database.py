@@ -5,26 +5,93 @@ index and JSON payload for jobs, voices, and queue settings.
 """
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 from typing import Iterable, Optional
 
 from job_states import ACTIVE_STATUSES, DONE_STATUSES
-from settings import AI_WORKSPACE
+DEFAULT_DB_PATH = (
+    Path.home()
+    / ".local"
+    / "share"
+    / "digital-human-job-runner"
+    / "dhjr.sqlite3"
+)
+DB_PATH = Path(os.environ.get("DHJR_DATABASE_PATH", str(DEFAULT_DB_PATH))).expanduser()
+_STARTUP_REPORTED = False
 
 
-DB_PATH = Path(__import__("os").environ.get(
-    "DHJR_DATABASE_PATH", str(AI_WORKSPACE / "app/config/dhjr.sqlite3")
-)).expanduser()
+def is_windows_mounted_path(path: Path) -> bool:
+    """Return whether a path lives under WSL's Windows-mounted filesystem."""
+    normalized = str(path.expanduser().resolve()).replace("\\", "/")
+    return normalized == "/mnt" or normalized.startswith("/mnt/")
+
+
+def _configure_connection(conn: sqlite3.Connection) -> str:
+    """Configure SQLite while keeping a compatibility fallback for /mnt paths."""
+    try:
+        row = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+        journal_mode = str(row[0] if row else "").lower()
+    except sqlite3.OperationalError as exc:
+        print(f"[WARN] SQLite WAL unavailable: {exc}")
+        journal_mode = ""
+
+    if journal_mode != "wal":
+        try:
+            row = conn.execute("PRAGMA journal_mode=DELETE").fetchone()
+            journal_mode = str(row[0] if row else "delete").lower()
+            print("[WARN] WAL unavailable on this filesystem; falling back to DELETE mode.")
+        except sqlite3.OperationalError:
+            raise
+
+    conn.execute("PRAGMA busy_timeout=30000")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return journal_mode
 
 
 def connect() -> sqlite3.Connection:
+    global _STARTUP_REPORTED
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
+    journal_mode = _configure_connection(conn)
+    if not _STARTUP_REPORTED:
+        print(f"[INFO] SQLite database: {DB_PATH}")
+        print(f"[INFO] SQLite journal mode: {journal_mode}")
+        if is_windows_mounted_path(DB_PATH):
+            print(
+                "[WARN] SQLite database is located on a Windows-mounted filesystem. "
+                "This may cause WAL disk I/O errors under WSL. "
+                "Recommended: use a native Linux path via DHJR_DATABASE_PATH."
+            )
+        _STARTUP_REPORTED = True
     return conn
+
+
+def database_health() -> dict:
+    """Return a small, read-only health summary for diagnostics and /health."""
+    exists_before = DB_PATH.exists()
+    try:
+        with connect() as conn:
+            journal_mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+            integrity = str(conn.execute("PRAGMA integrity_check").fetchone()[0]).lower()
+        return {
+            "path": str(DB_PATH),
+            "exists": exists_before or DB_PATH.exists(),
+            "writable": os.access(DB_PATH.parent, os.W_OK) and os.access(DB_PATH, os.W_OK),
+            "journalMode": journal_mode,
+            "integrity": integrity,
+        }
+    except (OSError, sqlite3.Error) as exc:
+        return {
+            "path": str(DB_PATH),
+            "exists": DB_PATH.exists(),
+            "writable": os.access(DB_PATH.parent, os.W_OK) if DB_PATH.parent.exists() else False,
+            "journalMode": "unknown",
+            "integrity": f"error: {exc}",
+        }
 
 
 def init_db() -> None:

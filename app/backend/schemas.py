@@ -41,6 +41,7 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     version: str
+    database: dict | None = None
 
 
 class ScriptFormatRequest(BaseModel):

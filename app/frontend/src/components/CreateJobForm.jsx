@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BackgroundPicker }    from './BackgroundPicker'
 import { AIScriptAssistant }   from './AIScriptAssistant'
 import {
@@ -9,6 +9,9 @@ import {
   VOICE_QUALITY_PRESETS,
   VOICE_STYLE_PRESETS,
 } from '../voiceOptions'
+
+const RECOMMENDED_VOICE_ID = 'voice_20260908_142126_748786_ryan_10'
+const RECOMMENDED_VOICE_NAME = 'Ryan 10分钟测试版'
 
 const INITIAL = {
   title: '',
@@ -49,9 +52,29 @@ export function CreateJobForm({
 }) {
   const [fields, setFields] = useState(INITIAL)
   const [errors, setErrors] = useState({})
+  const recommendationApplied = useRef(false)
   const selectedVoiceProfile = voiceProfiles.find(profile => profile.id === fields.voice_id)
-  const selectedVoiceIsFixed = selectedVoiceProfile?.trainingStatus === 'finished'
+  const selectedVoiceIsTrained = selectedVoiceProfile?.trainingStatus === 'finished'
   const isHiFiClone = fields.voice_mode === 'ultimate_clone'
+
+  useEffect(() => {
+    if (recommendationApplied.current || fields.voice_id !== 'default_voice') return
+    const recommended = voiceProfiles.find(profile => profile.id === RECOMMENDED_VOICE_ID)
+      || voiceProfiles.find(profile => profile.name === RECOMMENDED_VOICE_NAME)
+    if (!recommended) return
+    recommendationApplied.current = true
+    setFields(current => ({
+      ...current,
+      voice_id: recommended.id,
+      voice_language: recommended.language || 'zh',
+      voice_dialect: recommended.language === 'zh' ? (recommended.dialect || 'mandarin') : '',
+      voice_mode: 'controllable_clone',
+      voice_style: 'professional_natural',
+      voice_pace: 'natural',
+      voice_quality: 'high',
+      voice_seed: 'auto',
+    }))
+  }, [fields.voice_id, voiceProfiles])
 
   useEffect(() => {
     if (fields.output_type !== 'clean_video') return
@@ -70,7 +93,12 @@ export function CreateJobForm({
           next.voice_language = profile.language || 'zh'
           next.voice_dialect = profile.language === 'zh' ? (profile.dialect || 'mandarin') : ''
           next.voice_style = profile.style || 'professional_natural'
-          next.voice_mode = profile.mode || (profile.id === 'default_voice' ? 'basic_tts' : 'lora_finetune')
+          next.voice_mode = profile.mode || (profile.id === 'default_voice' ? 'basic_tts' : 'trained_profile')
+          if (profile.id === RECOMMENDED_VOICE_ID || profile.name === RECOMMENDED_VOICE_NAME) {
+            next.voice_mode = 'controllable_clone'
+            next.voice_style = 'professional_natural'
+            next.voice_pace = 'natural'
+          }
         }
       }
       return next
@@ -188,7 +216,7 @@ export function CreateJobForm({
             <select
               className="form-select"
               value={fields.voice_language}
-              disabled={selectedVoiceIsFixed}
+              disabled={selectedVoiceIsTrained}
               onChange={e => set('voice_language', e.target.value)}
             >
               {VOICE_LANGUAGES.map(([value, label]) => (
@@ -203,7 +231,7 @@ export function CreateJobForm({
               <select
                 className="form-select"
                 value={fields.voice_dialect}
-                disabled={selectedVoiceIsFixed}
+                disabled={selectedVoiceIsTrained}
                 onChange={e => set('voice_dialect', e.target.value)}
               >
                 {CHINESE_DIALECTS.map(([value, label]) => (
@@ -215,11 +243,7 @@ export function CreateJobForm({
 
           <label className="voice-field">
             <span>{t.form.voiceMode}</span>
-            <select
-              className="form-select"
-              value={fields.voice_mode}
-              onChange={e => set('voice_mode', e.target.value)}
-            >
+            <select className="form-select" value={fields.voice_mode} onChange={e => set('voice_mode', e.target.value)}>
               {VOICE_MODES.map(([value, label]) => (
                 <option key={value} value={value}>{t.voiceModes?.[value] || label}</option>
               ))}
@@ -228,12 +252,7 @@ export function CreateJobForm({
 
           <label className="voice-field">
             <span>{t.form.voiceStyle}</span>
-            <select
-              className="form-select"
-              value={fields.voice_style}
-              disabled={isHiFiClone}
-              onChange={e => set('voice_style', e.target.value)}
-            >
+            <select className="form-select" value={fields.voice_style} disabled={isHiFiClone} onChange={e => set('voice_style', e.target.value)}>
               {VOICE_STYLE_PRESETS.map(([value, label]) => (
                 <option key={value} value={value}>{t.voiceStyles?.[value] || label}</option>
               ))}
@@ -269,7 +288,7 @@ export function CreateJobForm({
             />
           </label>
         </div>
-        {selectedVoiceIsFixed && (
+        {selectedVoiceIsTrained && (
           <div className="form-hint voice-fixed-hint">{t.form.trainedVoiceFixedHint}</div>
         )}
         {isHiFiClone && (

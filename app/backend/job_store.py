@@ -198,6 +198,10 @@ def create_job(req: JobCreateRequest, voice_data: dict | None = None) -> dict:
         "script": req.script,
         "background_id": req.background_id,
         "voice_id": req.voice_id or DEFAULT_VOICE_ID,
+        "voice_name": voice_data.get("name") or (
+            "系统默认声音" if (req.voice_id or DEFAULT_VOICE_ID) == DEFAULT_VOICE_ID
+            else (req.voice_id or DEFAULT_VOICE_ID)
+        ),
         "voice_language": req.voice_language or "zh",
         "voice_dialect": req.voice_dialect if req.voice_language == "zh" else "",
         "voice_mode": req.voice_mode or "basic_tts",
@@ -285,7 +289,7 @@ def duplicate_job(source: dict) -> dict:
     job = {
         key: deepcopy(source.get(key))
         for key in (
-            "title", "subtitle", "keywords", "script", "background_id", "voice_id",
+            "title", "subtitle", "keywords", "script", "background_id", "voice_id", "voice_name",
             "voice_language", "voice_dialect", "voice_mode", "voice_style",
             "voice_pace", "voice_quality", "voice_seed", "voice_best_of",
             "voice_cfg", "voice_inference_timesteps", "voice_text_normalize",

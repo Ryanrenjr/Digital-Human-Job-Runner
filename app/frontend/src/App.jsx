@@ -125,7 +125,9 @@ export default function App() {
   const loadBackendVoiceProfiles = useCallback(async () => {
     try {
       const profiles = await api.getVoices()
-      setVoiceProfiles(prev => mergeVoiceProfiles(prev, profiles))
+      const customProfiles = profiles.filter(profile => profile?.id && profile.id !== 'default_voice')
+      setVoiceProfiles([DEFAULT_VOICE_PROFILE, ...customProfiles])
+      localStorage.setItem('dhjr_voice_profiles', JSON.stringify(customProfiles))
     } catch (e) {
       console.warn('voices:', e)
     }

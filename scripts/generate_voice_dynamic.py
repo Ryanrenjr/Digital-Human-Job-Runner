@@ -4,6 +4,7 @@ import inspect
 import json
 import os
 import re
+import shutil
 import subprocess
 
 import soundfile as sf
@@ -18,7 +19,17 @@ from voice_engine import (
     seed_for_segment,
     style_control_status,
 )
-from voice_text import normalize_for_speech, split_semantically
+from voice_boundaries import (
+    DEFAULT_LEADING_KEEP_MS,
+    DEFAULT_THRESHOLD_DBFS,
+    DEFAULT_TRAILING_KEEP_MS,
+    assemble_segments,
+    pause_ms_for,
+    crossfade_ms_for,
+    edge_silence_ms,
+    trim_waveform_edges,
+)
+from voice_text import normalize_for_speech, split_semantically, split_semantically_with_boundaries
 
 
 ROOT = Path(os.environ.get("DHJR_ENGINE_WORKSPACE", str(Path.home() / "AI-Workspace")))
@@ -43,11 +54,13 @@ SEG_DIR.mkdir(parents=True, exist_ok=True)
 PROGRESS_HELPER = os.environ.get("DHJR_PROGRESS_HELPER", "")
 
 # Keep sentence-level generation stable, but avoid resetting the voice model
-# for every short phrase. A later mastering pass handles the full track once.
-PAUSE_SECONDS = 0.03
+# for every short phrase. Boundary smoothing handles pauses after generation.
 MAX_SEGMENT_CHARS = 90
 VOICE_SAMPLE_RATE = 48000
 LATENT_SAMPLE_RATE = 16000
+DEBUG_BOUNDARIES = os.environ.get("DHJR_DEBUG_VOICE_BOUNDARIES", "").strip().lower() in {"1", "true", "yes", "on"}
+COMPARE_BOUNDARIES = os.environ.get("DHJR_BOUNDARY_COMPARE", "").strip().lower() in {"1", "true", "yes", "on"}
+BOUNDARY_MODE = os.environ.get("DHJR_BOUNDARY_MODE", "smoothed").strip().lower()
 
 
 def normalize_script(text: str) -> str:
@@ -56,6 +69,10 @@ def normalize_script(text: str) -> str:
 
 def split_script_for_voice(script: str) -> list[str]:
     return split_semantically(script, max_chars=MAX_SEGMENT_CHARS)
+
+
+def split_script_with_boundaries(script: str) -> list[dict]:
+    return split_semantically_with_boundaries(script, max_chars=MAX_SEGMENT_CHARS)
 
 
 def get_duration(path: Path) -> float:
@@ -99,23 +116,29 @@ def keywords_for_text(text: str, keywords: list[str]) -> list[str]:
     return hits[:2]
 
 
-def concat_audio(segment_paths: list[Path], output_path: Path, pause_seconds: float):
-    concat_list = OUTPUT_DIR / "voxcpm_concat_list.txt"
-    pause_path = OUTPUT_DIR / "pause.wav"
-    subprocess.run([
-        "ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=r={VOICE_SAMPLE_RATE}:cl=mono",
-        "-t", str(pause_seconds), str(pause_path),
-    ], check=True)
-    lines = []
-    for i, seg in enumerate(segment_paths):
-        lines.append(f"file '{seg.resolve()}'\n")
-        if i < len(segment_paths) - 1:
-            lines.append(f"file '{pause_path.resolve()}'\n")
-    concat_list.write_text("".join(lines), encoding="utf-8")
-    subprocess.run([
-        "ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list),
-        "-ar", str(VOICE_SAMPLE_RATE), "-ac", "1", str(output_path),
-    ], check=True)
+def concat_audio(
+    segment_paths: list[Path],
+    output_path: Path,
+    boundary_types: list[str],
+    legacy: bool = False,
+) -> list[dict]:
+    arrays = []
+    segment_sample_rate = None
+    for path in segment_paths:
+        samples, sample_rate = sf.read(path, dtype="float32", always_2d=False)
+        if segment_sample_rate is None:
+            segment_sample_rate = sample_rate
+        elif sample_rate != segment_sample_rate:
+            raise ValueError(f"Mismatched segment sample rate: {sample_rate} for {path}")
+        arrays.append(samples.reshape(-1))
+    joined, report = assemble_segments(
+        arrays,
+        segment_sample_rate or VOICE_SAMPLE_RATE,
+        boundary_types,
+        legacy=legacy,
+    )
+    sf.write(output_path, joined, segment_sample_rate or VOICE_SAMPLE_RATE)
+    return report
 
 
 def master_generated_audio(input_path: Path, output_path: Path):
@@ -132,16 +155,56 @@ def master_generated_audio(input_path: Path, output_path: Path):
     ], check=True)
 
 
-def trim_segment_edges(path: Path) -> None:
-    """Remove only leading model silence; never cut a natural mid-sentence pause."""
-    tmp = path.with_suffix(".trimmed.wav")
-    subprocess.run([
-        "ffmpeg", "-y", "-i", str(path),
-        "-af",
-        "silenceremove=start_periods=1:start_duration=0.08:start_threshold=-45dB:stop_periods=0",
-        "-ac", "1", "-ar", str(VOICE_SAMPLE_RATE), str(tmp),
-    ], check=True)
-    tmp.replace(path)
+def trim_segment_edges(path: Path, expected_sample_rate: int):
+    """Trim only segment edges; never scan or remove internal silence."""
+    samples, sample_rate = sf.read(path, dtype="float32", always_2d=False)
+    if sample_rate != expected_sample_rate:
+        raise ValueError(f"Unexpected segment sample rate: {sample_rate} for {path}")
+    trimmed, result = trim_waveform_edges(
+        samples,
+        sample_rate,
+        leading_keep_ms=DEFAULT_LEADING_KEEP_MS,
+        trailing_keep_ms=DEFAULT_TRAILING_KEEP_MS,
+        threshold_dbfs=DEFAULT_THRESHOLD_DBFS,
+    )
+    sf.write(path, trimmed, sample_rate)
+    return result
+
+
+def _boundary_debug_dir() -> Path | None:
+    if not (DEBUG_BOUNDARIES or COMPARE_BOUNDARIES):
+        return None
+    path = OUTPUT_DIR / "debug_voice"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _warn_long_boundaries(report: list[dict]) -> None:
+    for item in report:
+        pause_ms = float(item.get("detectedBoundaryPauseMs", item.get("pauseMs", 0)))
+        boundary_type = item.get("type", "technical_split")
+        if boundary_type != "paragraph" and pause_ms > 350:
+            print(f"[WARN] Unexpected long boundary pause: {item.get('timeApprox', 0):.2f}s ({pause_ms:.0f}ms, {boundary_type})")
+        if boundary_type == "technical_split" and pause_ms > 150:
+            print(f"[WARN] Technical split pause too long: {item.get('timeApprox', 0):.2f}s ({pause_ms:.0f}ms)")
+
+
+def _enrich_boundary_report(report: list[dict], arrays: list, sample_rate: int, boundary_types: list[str], legacy: bool = False) -> list[dict]:
+    enriched = []
+    for index, item in enumerate(report):
+        boundary_type = boundary_types[index]
+        pause_ms = item["insertedPauseMs"]
+        edge_ms = edge_silence_ms(arrays[index], sample_rate, "trailing")
+        edge_ms += edge_silence_ms(arrays[index + 1], sample_rate, "leading")
+        enriched.append({
+            **item,
+            "type": boundary_type,
+            "trailingSilenceMsCurrent": round(edge_silence_ms(arrays[index], sample_rate, "trailing"), 1),
+            "leadingSilenceMsNext": round(edge_silence_ms(arrays[index + 1], sample_rate, "leading"), 1),
+            "detectedBoundaryPauseMs": round(edge_ms + pause_ms, 1),
+        })
+    _warn_long_boundaries(enriched)
+    return enriched
 
 
 def optional_asr_control_check(audio_path: Path, language: str) -> dict:
@@ -280,7 +343,12 @@ def main():
     if ref_wav and not ref_wav.exists():
         raise FileNotFoundError(f"reference wav not found: {ref_wav}")
 
-    display_segments = split_script_for_voice(script)
+    split_specs = split_script_with_boundaries(script)
+    display_segments = [item["text"] for item in split_specs]
+    boundary_types = [
+        item.get("boundaryAfter") or "technical_split"
+        for item in split_specs[:-1]
+    ]
     keywords = read_keywords()
 
     print("Voice segment count:", len(display_segments))
@@ -309,9 +377,13 @@ def main():
         f.unlink()
 
     segment_paths = []
+    raw_segment_arrays = []
+    trimmed_segment_arrays = []
+    trim_results = []
     timeline_segments = []
     captions = []
     current = 0.0
+    debug_dir = _boundary_debug_dir()
 
     segment_metadata = []
     for i, display_text in enumerate(display_segments, 1):
@@ -356,7 +428,17 @@ def main():
         # already has bad-case retry logic, and timing surgery is a common
         # source of clipped words and unnatural pauses.
         sf.write(out_path, wav, model.tts_model.sample_rate)
-        trim_segment_edges(out_path)
+        raw_samples, _ = sf.read(out_path, dtype="float32", always_2d=False)
+        raw_segment_arrays.append(raw_samples.reshape(-1))
+        if debug_dir:
+            sf.write(debug_dir / f"segment_{i:03d}_raw.wav", raw_samples, model.tts_model.sample_rate)
+        trim_result = trim_segment_edges(out_path, model.tts_model.sample_rate)
+        trimmed_samples, _ = sf.read(out_path, dtype="float32", always_2d=False)
+        trimmed_samples = trimmed_samples.reshape(-1)
+        trimmed_segment_arrays.append(trimmed_samples)
+        trim_results.append(trim_result)
+        if debug_dir:
+            sf.write(debug_dir / f"segment_{i:03d}_trimmed.wav", trimmed_samples, model.tts_model.sample_rate)
         dur = get_duration(out_path)
         start = current
         end = current + dur
@@ -398,16 +480,66 @@ def main():
             ],
             "expectedDuration": [round(low, 2), round(high, 2)],
             "actualDuration": round(dur, 3),
+            "boundaryAfter": boundary_types[i - 1] if i <= len(boundary_types) else None,
+            "leadingTrimMs": round(trim_result.leading_trim_ms, 1),
+            "trailingTrimMs": round(trim_result.trailing_trim_ms, 1),
+            "leadingSilenceMsAfterTrim": round(trim_result.leading_silence_ms, 1),
+            "trailingSilenceMsAfterTrim": round(trim_result.trailing_silence_ms, 1),
         })
-        current = end + PAUSE_SECONDS
+        if i <= len(boundary_types):
+            boundary_type = boundary_types[i - 1]
+            current = end + pause_ms_for(boundary_type, legacy=False) / 1000.0 - crossfade_ms_for(boundary_type) / 1000.0
         print(f"Saved: {out_path}")
         print(f"Duration: {dur:.2f}s | Start: {start:.2f}s | End: {end:.2f}s")
         update_progress(12 + round(i / max(1, len(display_segments)) * 20), f"已完成第 {i} / {len(display_segments)} 段声音")
 
     concatenated_path = OUTPUT_DIR / "voice_concatenated.wav"
-    concat_audio(segment_paths, concatenated_path, PAUSE_SECONDS)
+    after_report = concat_audio(segment_paths, concatenated_path, boundary_types, legacy=False)
+    after_report = _enrich_boundary_report(
+        after_report,
+        trimmed_segment_arrays,
+        model.tts_model.sample_rate,
+        boundary_types,
+        legacy=False,
+    )
     voice_path = OUTPUT_DIR / "voice.wav"
     master_generated_audio(concatenated_path, voice_path)
+    before_report = []
+    before_path = OUTPUT_DIR / "voice_before.wav"
+    after_path = OUTPUT_DIR / "voice_after.wav"
+    before_concat_path = OUTPUT_DIR / "voice_before_concatenated.wav"
+    if COMPARE_BOUNDARIES:
+        # The legacy comparison uses the same generated waveforms but skips
+        # the new edge-trim and typed-boundary assembly.
+        before_audio, before_report = assemble_segments(
+            raw_segment_arrays,
+            model.tts_model.sample_rate,
+            boundary_types,
+            legacy=True,
+        )
+        sf.write(before_concat_path, before_audio, model.tts_model.sample_rate)
+        before_report = _enrich_boundary_report(
+            before_report,
+            raw_segment_arrays,
+            model.tts_model.sample_rate,
+            boundary_types,
+            legacy=True,
+        )
+        master_generated_audio(before_concat_path, before_path)
+        shutil.copyfile(voice_path, after_path)
+        if debug_dir:
+            shutil.copyfile(before_path, debug_dir / "voice_before_boundary_fix.wav")
+            shutil.copyfile(after_path, debug_dir / "voice_after_boundary_fix.wav")
+        (OUTPUT_DIR / "voice_boundaries_before.json").write_text(
+            json.dumps(before_report, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    if debug_dir and not COMPARE_BOUNDARIES:
+        shutil.copyfile(concatenated_path, debug_dir / "voice_after_boundary_fix.wav")
+    (OUTPUT_DIR / "voice_boundaries.json").write_text(
+        json.dumps(after_report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     update_progress(34, "正在整理声音并校准时长")
     total_duration = get_duration(voice_path)
     asr_check = optional_asr_control_check(
@@ -451,6 +583,15 @@ def main():
         "requestedSeed": "auto" if config.requested_seed is None else config.requested_seed,
         "successfulSeeds": [item.get("successfulSeed") for item in segment_metadata],
         "asrControlCheck": asr_check,
+        "boundarySmoothing": {
+            "mode": BOUNDARY_MODE,
+            "headTrimKeepMs": DEFAULT_LEADING_KEEP_MS,
+            "tailTrimKeepMs": DEFAULT_TRAILING_KEEP_MS,
+            "thresholdDbfs": DEFAULT_THRESHOLD_DBFS,
+            "crossfadeMs": "technical_split/comma only",
+            "boundaries": after_report,
+            "beforeBoundaries": before_report if COMPARE_BOUNDARIES else None,
+        },
         "segments": segment_metadata,
         "totalDuration": total_duration,
     }, ensure_ascii=False, indent=2), encoding="utf-8")

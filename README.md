@@ -4,6 +4,14 @@ A local web console for creating, queuing, previewing, and downloading digital-h
 
 This project was forked from a client-specific internal runner and has been generalized so it can become a reusable local product.
 
+## V1.3.3
+
+- Segment-boundary smoothing for long VoxCPM2 voice generation
+- Head/tail-only silence trimming with safety margins
+- Typed pauses for technical splits, punctuation, questions, and paragraphs
+- Short crossfade for technical and comma boundaries
+- Boundary metadata, warnings, debug WAVs, and before/after comparison output
+
 ## V1.3.2
 
 - VoxCPM2 controllable clone and Hi-Fi clone modes
@@ -79,13 +87,20 @@ The backend reads `DHJR_*` environment variables. Important settings:
 - `DHJR_DEFAULT_VOICE_ID`: default voice profile stored on each job
 - `DHJR_SUPPORTED_VOICE_IDS`: comma-separated voice IDs accepted by the job preparer
 - `DHJR_ENGINE_WORKSPACE`: read-only engine/model workspace used by the pipeline
-- `DHJR_DATABASE_PATH`: SQLite database for job, voice, and queue metadata
+- `DHJR_DATABASE_PATH`: optional SQLite override for job, voice, and queue metadata;
+  by default the backend uses `~/.local/share/digital-human-job-runner/dhjr.sqlite3`
+  so WSL runs keep SQLite on the native Linux filesystem instead of `/mnt/c`
 - `DHJR_CONDA_EXE`: Conda, Miniconda, or Miniforge executable available to WSL (Micromamba is not supported yet)
 - `DHJR_VOXCPM_ENV` and `DHJR_LATENTSYNC_ENV`: model environment names
 - `DHJR_WINDOWS_OUTPUT_DIR`: optional WSL-mounted Windows output folder
 - `DHJR_RUN_SCRIPT` and `DHJR_RUN_VOICE_SCRIPT`: pipeline entry scripts
 
 The frontend reads `VITE_API_BASE_URL`.
+
+The database keeps WAL mode and reports its path, journal mode, write access, and
+integrity through `GET /health`. If an explicitly configured `/mnt/*` database
+cannot enable WAL, the backend falls back to DELETE mode and prints a warning;
+the recommended fix is to point `DHJR_DATABASE_PATH` at a native Linux path.
 
 ## Runtime isolation
 

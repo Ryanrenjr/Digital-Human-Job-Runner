@@ -1,9 +1,10 @@
 import os
 import json
+import sqlite3
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -15,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from job_store import create_job, delete_job, list_jobs, load_job, save_job
 from database import claim_gpu_lease, claim_job, get_gpu_lease, release_gpu_lease
+import database
 from job_store import build_paths, patch_job
 from runner import _build_wsl_command, _to_wsl_path
 import runner
@@ -47,6 +49,34 @@ class StorageTests(unittest.TestCase):
         delete_job(first["job_id"])
         delete_job(second["job_id"])
         self.assertEqual(len(list_jobs()), 0)
+
+    def test_database_default_is_not_workspace_config(self):
+        self.assertNotEqual(
+            database.DEFAULT_DB_PATH,
+            Path(os.environ["DHJR_WORKSPACE"]) / "app/config/dhjr.sqlite3",
+        )
+
+    def test_database_environment_override_is_honored(self):
+        self.assertEqual(database.DB_PATH, TEST_ROOT / "runner.sqlite3")
+
+    def test_database_falls_back_when_wal_is_unavailable(self):
+        conn = Mock()
+        delete_result = Mock()
+        delete_result.fetchone.return_value = ("delete",)
+        conn.execute.side_effect = [sqlite3.OperationalError("WAL unavailable"), delete_result, None, None, None]
+
+        self.assertEqual(database._configure_connection(conn), "delete")
+        self.assertEqual(conn.execute.call_args_list[0].args[0], "PRAGMA journal_mode=WAL")
+        self.assertEqual(conn.execute.call_args_list[1].args[0], "PRAGMA journal_mode=DELETE")
+
+    def test_database_init_and_health_are_repeatable(self):
+        database.init_db()
+        database.init_db()
+        health = database.database_health()
+        self.assertTrue(health["exists"])
+        self.assertTrue(health["writable"])
+        self.assertEqual(health["integrity"], "ok")
+        self.assertEqual(health["journalMode"], "wal")
 
     def test_relative_path_conversion_does_not_call_wsl(self):
         converted = _to_wsl_path("scripts/run_cleanvideo_job.sh")

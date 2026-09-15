@@ -21,6 +21,15 @@ def _load_env_file(path: Path) -> None:
 
 _load_env_file(ENV_FILE)
 
+
+def _default_conda_executable() -> str:
+    """Find the usual WSL Conda installation when it is not on PATH."""
+    for name in ("miniconda3", "miniforge3", "mambaforge"):
+        candidate = Path.home() / name / "bin" / "conda"
+        if candidate.is_file():
+            return str(candidate)
+    return "conda"
+
 APP_NAME = os.getenv("DHJR_APP_NAME", "Digital Human Job Runner")
 APP_VERSION = os.getenv("DHJR_APP_VERSION", "0.2.0")
 
@@ -31,7 +40,7 @@ ENGINE_WORKSPACE = Path(
     os.getenv("DHJR_ENGINE_WORKSPACE") or str(Path.home() / "AI-Workspace")
 ).expanduser()
 
-CONDA_EXE = os.getenv("DHJR_CONDA_EXE", "conda")
+CONDA_EXE = os.getenv("DHJR_CONDA_EXE", _default_conda_executable())
 VOXCPM_ENV = os.getenv("DHJR_VOXCPM_ENV", "voxcpm")
 LATENTSYNC_ENV = os.getenv("DHJR_LATENTSYNC_ENV", "latentsync")
 

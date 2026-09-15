@@ -54,3 +54,53 @@ def split_semantically(text: str, max_chars: int = 90) -> list[str]:
     if buffer:
         result.append(buffer)
     return [item for item in result if item]
+
+
+def _boundary_type(text: str, paragraph_end: bool) -> str:
+    if paragraph_end:
+        return "paragraph"
+    ending = text.rstrip()[-1:] if text.rstrip() else ""
+    return {
+        "，": "comma",
+        ",": "comma",
+        "；": "semicolon",
+        ";": "semicolon",
+        "：": "colon",
+        ":": "colon",
+        "。": "sentence_end",
+        "！": "exclamation",
+        "!": "exclamation",
+        "？": "question",
+        "?": "question",
+    }.get(ending, "technical_split")
+
+
+def split_semantically_with_boundaries(text: str, max_chars: int = 90) -> list[dict]:
+    """Return display text plus the reason for the following boundary."""
+    normalized = normalize_for_speech(text)
+    segments = split_semantically(normalized, max_chars)
+    paragraph_endings = []
+    paragraph_starts = []
+    for paragraph in (p.strip() for p in re.split(r"\n{2,}", normalized) if p.strip()):
+        lines = [line.strip() for line in paragraph.split("\n") if line.strip()]
+        if lines:
+            paragraph_endings.append(re.sub(r"[，,\s]", "", lines[-1]))
+            paragraph_starts.append(re.sub(r"[，,\s]", "", lines[0]))
+
+    output: list[dict] = []
+    for index, segment in enumerate(segments):
+        if index == len(segments) - 1:
+            boundary = None
+        else:
+            compact_segment = re.sub(r"[，,\s]", "", segment)
+            next_compact = re.sub(r"[，,\s]", "", segments[index + 1])
+            is_paragraph_end = any(
+                ending and compact_segment.endswith(ending)
+                for ending in paragraph_endings
+            ) or any(
+                start and next_compact.startswith(start)
+                for start in paragraph_starts[1:]
+            )
+            boundary = _boundary_type(segment, paragraph_end=is_paragraph_end)
+        output.append({"text": segment, "boundaryAfter": boundary})
+    return output
