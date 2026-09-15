@@ -8,14 +8,18 @@ import stable_whisper
 
 CLIPS_DIR = Path(os.environ["TRAIN_CLIPS_DIR"])
 OUT_TSV = Path(os.environ["TRAIN_TRANSCRIPT_DRAFT"])
+LANGUAGE = os.environ.get("DHJR_TRAIN_LANGUAGE", "zh").strip() or "zh"
 
-print("Loading Whisper model: large-v3")
+print(f"Loading Whisper model: large-v3 (language={LANGUAGE})")
 model = stable_whisper.load_model("large-v3")
 
 rows = []
 clips = sorted(glob.glob(str(CLIPS_DIR / "*.wav")))
 for i, clip in enumerate(clips, 1):
-    result = model.transcribe(clip, language="zh", verbose=False)
+    transcribe_kwargs = {"verbose": False}
+    if LANGUAGE.lower() not in {"auto", "unknown"}:
+        transcribe_kwargs["language"] = LANGUAGE
+    result = model.transcribe(clip, **transcribe_kwargs)
     text = result.text.strip()
     print(f"[{i}/{len(clips)}] {Path(clip).name}: {text}")
     rows.append((Path(clip).name, clip, text))

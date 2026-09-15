@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+WINDOWS_OUTPUT_DIR="${DHJR_WINDOWS_OUTPUT_DIR:-/mnt/c/Users/YOUR_WINDOWS_USER/Desktop/DigitalHumanOutput}"
+
 echo "===================================="
 echo "Step 3: Render packaged video and append endcard"
 echo "===================================="
@@ -98,23 +100,23 @@ ffmpeg -y \
   ~/AI-Workspace/DigitalHumanOutput/final_video.mp4
 
 echo "Copying final video to Windows Desktop..."
-mkdir -p /mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput
+mkdir -p "$WINDOWS_OUTPUT_DIR"
 
 cp ~/AI-Workspace/DigitalHumanOutput/final_video.mp4 \
-/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput/final_video.mp4
+"$WINDOWS_OUTPUT_DIR/final_video.mp4"
 
 cp ~/AI-Workspace/DigitalHumanOutput/main_video_no_endcard.mp4 \
-/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput/main_video_no_endcard.mp4
+"$WINDOWS_OUTPUT_DIR/main_video_no_endcard.mp4"
 
 cp ~/AI-Workspace/DigitalHumanOutput/main_video_trimmed.mp4 \
-/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput/main_video_trimmed.mp4
+"$WINDOWS_OUTPUT_DIR/main_video_trimmed.mp4"
 
 cp ~/AI-Workspace/DigitalHumanOutput/captions.json \
-/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput/captions.json
+"$WINDOWS_OUTPUT_DIR/captions.json"
 
 cp ~/AI-Workspace/DigitalHumanOutput/voice.wav \
-/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput/voice.wav
+"$WINDOWS_OUTPUT_DIR/voice.wav"
 
 echo "Step 3 completed."
 echo "Final video:"
-echo "C:\\Users\\rjxxx\\Desktop\\DigitalHumanOutput\\final_video.mp4"
+echo "Windows output directory: $WINDOWS_OUTPUT_DIR"

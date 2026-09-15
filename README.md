@@ -4,6 +4,15 @@ A local web console for creating, queuing, previewing, and downloading digital-h
 
 This project was forked from a client-specific internal runner and has been generalized so it can become a reusable local product.
 
+## V1.3.2
+
+- VoxCPM2 controllable clone and Hi-Fi clone modes
+- Natural-language style and pace instructions
+- Reproducible seed and successful-seed metadata
+- Quality presets, retry handling, and Best-of-N candidates
+- Improved speech segmentation and normalization
+- Voice generation metadata and transcript review support
+
 ## What It Does
 
 - Create video or voice-only jobs from title, subtitle, keywords, and script

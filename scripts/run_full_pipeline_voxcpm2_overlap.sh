@@ -2,7 +2,7 @@
 set -e
 
 echo "===================================="
-echo "LeoVisa Digital Human Full Pipeline V1.2"
+echo "Digital Human Job Runner Full Pipeline V1.2"
 echo "VoxCPM2 + segment slow/normalize + WhisperX ASR captions + LatentSync Overlap + Remotion"
 echo "===================================="
 
@@ -129,12 +129,12 @@ ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 ~/AI-Worksp
 echo ""
 echo "Done."
 echo "Final video:"
-echo "C:\\Users\\rjxxx\\Videos\\LeoVisa\\final_video.mp4"
+echo "Windows output directory: ${DHJR_WINDOWS_OUTPUT_DIR:-/mnt/c/Users/YOUR_WINDOWS_USER/Desktop/DigitalHumanOutput}"
 
 echo ""
 echo "Step 7: Copy final video to Windows"
 echo "===================================="
 DATESTAMP=$(date +%Y%m%d)
-DEST="/mnt/c/Users/rjxxx/Videos/LeoVisa/final_video_${DATESTAMP}.mp4"
+DEST="${DHJR_WINDOWS_OUTPUT_DIR:-/mnt/c/Users/YOUR_WINDOWS_USER/Desktop/DigitalHumanOutput}/final_video_${DATESTAMP}.mp4"
 cp ~/AI-Workspace/DigitalHumanOutput/final_video.mp4 "$DEST"
-echo "Copied to: C:\\Users\\rjxxx\\Videos\\LeoVisa\\final_video_${DATESTAMP}.mp4"
+echo "Copied to: $DEST"

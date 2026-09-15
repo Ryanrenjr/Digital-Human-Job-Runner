@@ -3,6 +3,23 @@
 
 ---
 
+## 1.3.2 — VoxCPM2 Full Voice Engine
+
+**Version:** 1.3.2
+**Status:** Working
+**Date:** 2026-09-15
+
+### 新增功能
+
+- VoxCPM2 controllable clone and Hi-Fi clone modes
+- Style / pace control instructions
+- Reproducible seed and successful-seed metadata
+- Quality presets, retry handling, and Best-of-N
+- Improved speech segmentation and normalization
+- Voice generation metadata and transcript review
+
+---
+
 ## 0.1.2 — CleanVideo Local Console V1.2
 
 **Version:** 0.1.2  

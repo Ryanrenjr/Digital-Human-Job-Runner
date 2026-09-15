@@ -24,6 +24,26 @@ STATE_PATH   = AI_WORKSPACE / "app/config/queue_state.json"
 _DONE = DONE_STATUSES
 
 
+def _voice_training_failure_message(profile: dict) -> str:
+    """Keep the watchdog error useful when the child dies without a traceback."""
+    base = "训练进程意外退出，已由后台监控恢复。"
+    raw_path = profile.get("trainingLogPath")
+    if not raw_path:
+        return base
+    try:
+        path = Path(raw_path)
+        if not path.exists():
+            return base
+        tail = path.read_bytes()[-2400:].decode("utf-8", errors="replace").strip()
+        if not tail:
+            return base
+        lines = [line.strip() for line in tail.splitlines() if line.strip()]
+        context = "\n".join(lines[-8:])
+        return f"{base}\n训练日志最后记录：\n{context}"
+    except OSError:
+        return base
+
+
 class QueueRunner:
     def __init__(self):
         self._state = self._load_state()
@@ -150,7 +170,7 @@ class QueueRunner:
                 if current and current.get("trainingStatus") == "training":
                     current["trainingStatus"] = "failed"
                     current["trainingFinishedAt"] = datetime.now().isoformat(timespec="seconds")
-                    current["trainingError"] = "训练进程意外退出，已由后台监控恢复。"
+                    current["trainingError"] = _voice_training_failure_message(current)
                     current["trainingPid"] = None
                     current["trainingProcessGroupId"] = None
                     save_voice_profile(current)

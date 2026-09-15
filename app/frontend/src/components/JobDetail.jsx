@@ -139,6 +139,8 @@ export function JobDetail({ job, log, onClose, onRefreshLog, onCancel, onReset, 
           <Row label={t.detail.voiceDialect}  value={labelFor(t.voiceDialects, job.voice_dialect)} />
           <Row label={t.detail.voiceMode}     value={labelFor(t.voiceModes, job.voice_mode)} />
           <Row label={t.detail.voiceStyle}    value={labelFor(t.voiceStyles, job.voice_style)} />
+          <Row label={t.detail.voicePace}     value={labelFor(t.voicePaces, job.voice_pace)} />
+          <Row label={t.detail.voiceQuality}  value={labelFor(t.voiceQualities, job.voice_quality)} />
           <Row label={t.detail.created}      value={job.created_at} />
           <Row label={t.detail.started}      value={job.started_at} />
           <Row label={t.detail.finished}     value={job.finished_at} />

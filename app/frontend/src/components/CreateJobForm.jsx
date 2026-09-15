@@ -4,6 +4,9 @@ import { AIScriptAssistant }   from './AIScriptAssistant'
 import {
   CHINESE_DIALECTS,
   VOICE_LANGUAGES,
+  VOICE_MODES,
+  VOICE_PACE_PRESETS,
+  VOICE_QUALITY_PRESETS,
   VOICE_STYLE_PRESETS,
 } from '../voiceOptions'
 
@@ -17,7 +20,14 @@ const INITIAL = {
   voice_language: 'zh',
   voice_dialect: 'mandarin',
   voice_mode: 'basic_tts',
-  voice_style: 'professional_calm',
+  voice_style: 'professional_natural',
+  voice_pace: 'natural',
+  voice_quality: 'high',
+  voice_seed: 'auto',
+  voice_best_of: null,
+  voice_text_normalize: true,
+  voice_reference_cleanup: false,
+  voice_retry_badcase: true,
   output_type: 'clean_video',
   shutdown_after_done: false,
   // AI-generated extras (sent with job create but not shown as form fields)
@@ -41,6 +51,7 @@ export function CreateJobForm({
   const [errors, setErrors] = useState({})
   const selectedVoiceProfile = voiceProfiles.find(profile => profile.id === fields.voice_id)
   const selectedVoiceIsFixed = selectedVoiceProfile?.trainingStatus === 'finished'
+  const isHiFiClone = fields.voice_mode === 'ultimate_clone'
 
   useEffect(() => {
     if (fields.output_type !== 'clean_video') return
@@ -58,7 +69,7 @@ export function CreateJobForm({
         if (profile) {
           next.voice_language = profile.language || 'zh'
           next.voice_dialect = profile.language === 'zh' ? (profile.dialect || 'mandarin') : ''
-          next.voice_style = profile.style || 'professional_calm'
+          next.voice_style = profile.style || 'professional_natural'
           next.voice_mode = profile.mode || (profile.id === 'default_voice' ? 'basic_tts' : 'lora_finetune')
         }
       }
@@ -203,11 +214,24 @@ export function CreateJobForm({
           )}
 
           <label className="voice-field">
+            <span>{t.form.voiceMode}</span>
+            <select
+              className="form-select"
+              value={fields.voice_mode}
+              onChange={e => set('voice_mode', e.target.value)}
+            >
+              {VOICE_MODES.map(([value, label]) => (
+                <option key={value} value={value}>{t.voiceModes?.[value] || label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="voice-field">
             <span>{t.form.voiceStyle}</span>
             <select
               className="form-select"
               value={fields.voice_style}
-              disabled={selectedVoiceIsFixed}
+              disabled={isHiFiClone}
               onChange={e => set('voice_style', e.target.value)}
             >
               {VOICE_STYLE_PRESETS.map(([value, label]) => (
@@ -215,9 +239,41 @@ export function CreateJobForm({
               ))}
             </select>
           </label>
+
+          <label className="voice-field">
+            <span>{t.form.voicePace}</span>
+            <select className="form-select" value={fields.voice_pace} disabled={isHiFiClone} onChange={e => set('voice_pace', e.target.value)}>
+              {VOICE_PACE_PRESETS.map(([value, label]) => (
+                <option key={value} value={value}>{t.voicePaces?.[value] || label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="voice-field">
+            <span>{t.form.voiceQuality}</span>
+            <select className="form-select" value={fields.voice_quality} onChange={e => set('voice_quality', e.target.value)}>
+              {VOICE_QUALITY_PRESETS.map(([value, label]) => (
+                <option key={value} value={value}>{t.voiceQualities?.[value] || label}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="voice-field">
+            <span>{t.form.voiceSeed}</span>
+            <input
+              className="form-input"
+              value={fields.voice_seed}
+              inputMode="numeric"
+              placeholder={t.form.voiceSeedPlaceholder}
+              onChange={e => set('voice_seed', e.target.value.trim() || 'auto')}
+            />
+          </label>
         </div>
         {selectedVoiceIsFixed && (
           <div className="form-hint voice-fixed-hint">{t.form.trainedVoiceFixedHint}</div>
+        )}
+        {isHiFiClone && (
+          <div className="form-hint voice-fixed-hint">{t.form.hifiStyleHint}</div>
         )}
       </div>
 

@@ -6,7 +6,7 @@ INPUT="$ROOT/DigitalHumanInput"
 OUTPUT="$ROOT/DigitalHumanOutput"
 VOX="$ROOT/projects/VoxCPM"
 SCRIPTS="$ROOT/scripts"
-DESKTOP="/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput"
+DESKTOP="${DHJR_WINDOWS_OUTPUT_DIR:-/mnt/c/Users/YOUR_WINDOWS_USER/Desktop/DigitalHumanOutput}"
 
 TS=$(date +%Y%m%d_%H%M%S)
 WORK="$OUTPUT/patch_intro_video_$TS"
@@ -142,7 +142,7 @@ echo ""
 echo "===================================="
 echo "Done."
 echo "补录视频已生成："
-echo "C:\\Users\\rjxxx\\Desktop\\DigitalHumanOutput\\intro_patch_150w_indian_50w_chinese_video_$TS.mp4"
+echo "Windows output directory: $DESKTOP"
 echo "===================================="
 
 explorer.exe "$(wslpath -w "$DESKTOP")" || true

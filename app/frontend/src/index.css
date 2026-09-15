@@ -2307,6 +2307,21 @@ body {
   gap: 0.35rem;
 }
 
+.transcript-review-panel {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.transcript-review-panel h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.transcript-textarea {
+  min-height: 58px;
+}
+
 .standard-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

@@ -155,6 +155,7 @@ def start_voice_training(voice_id: str) -> int:
             f"DHJR_ENGINE_WORKSPACE={engine_expr} "
             f"DHJR_CONDA_EXE={shlex.quote(CONDA_EXE)} "
             f"DHJR_VOXCPM_ENV={shlex.quote(VOXCPM_ENV)} "
+            f"DHJR_TRAIN_LANGUAGE={shlex.quote(str(profile.get('language') or 'zh'))} "
             f"DHJR_TRAINING_RUN_ID={shlex.quote(run_id)} "
             f"DHJR_VOICE_RUN_METADATA={shlex.quote(_to_wsl_path(profile['trainingRunMetadata']))} "
             f"{database_expr}"
@@ -170,6 +171,7 @@ def start_voice_training(voice_id: str) -> int:
             f"DHJR_ENGINE_WORKSPACE={ENGINE_WORKSPACE}",
             f"DHJR_CONDA_EXE={CONDA_EXE}",
             f"DHJR_VOXCPM_ENV={VOXCPM_ENV}",
+            f"DHJR_TRAIN_LANGUAGE={profile.get('language') or 'zh'}",
             "bash", str(script), voice_id,
         ]
 

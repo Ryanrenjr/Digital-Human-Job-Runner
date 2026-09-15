@@ -1,5 +1,5 @@
 # V1 / V1.1 Acceptance Checklist
-## LeoVisa Digital Human Job Runner
+## Digital Human Job Runner
 
 **Date:** 2026-06-10  
 **Version:** 0.1.1
@@ -24,7 +24,7 @@ curl http://127.0.0.1:8008/health
 
 **期望响应：**
 ```json
-{"status": "ok", "service": "LeoVisa Digital Human Job Runner", "version": "0.1.0"}
+{"status": "ok", "service": "Digital Human Job Runner", "version": "0.1.0"}
 ```
 
 - [ ] 状态码 200
@@ -149,7 +149,7 @@ ls -lh ~/AI-Workspace/jobs/JOB_ID/output/
 - [ ] `clean_video.mp4` 存在，大小 > 1MB
 - [ ] `voice.wav` 存在
 - [ ] WSL 路径：`~/AI-Workspace/jobs/JOB_ID/output/clean_video.mp4`
-- [ ] Windows 桌面：`C:\Users\rjxxx\Desktop\DigitalHumanOutput\JOB_ID_clean_video.mp4`
+- [ ] Windows 桌面：`<Windows output directory>\JOB_ID_clean_video.mp4`
 
 ---
 
@@ -398,7 +398,7 @@ curl -s http://127.0.0.1:8008/jobs/FINISHED_JOB_ID | python3 -m json.tool | grep
 - [ ] finished 任务 JobDetail 中显示 Windows 路径行
 - [ ] 点击 **Copy Path** 按钮后，按钮文字变为 **✓ Copied**
 - [ ] 2 秒后按钮文字恢复为 **Copy Path**
-- [ ] 粘贴剪贴板内容确认为正确的 Windows 路径（`C:\Users\rjxxx\Desktop\DigitalHumanOutput\...`）
+- [ ] 粘贴剪贴板内容确认为正确的 Windows 输出路径（`<Windows output directory>\...`）
 
 ---
 

@@ -115,7 +115,7 @@ def validate_job(job: dict, job_id: str) -> None:
     job.setdefault("voice_language", "zh")
     job.setdefault("voice_dialect", "mandarin" if job["voice_language"] == "zh" else "")
     job.setdefault("voice_mode", "basic_tts")
-    job.setdefault("voice_style", "professional_calm")
+    job.setdefault("voice_style", "professional_natural")
 
 
 def resolve_background(background_id: str) -> Path:
@@ -156,7 +156,16 @@ def write_input_files(job: dict, job_input_dir: Path) -> None:
         "language": job.get("voice_language", "zh"),
         "dialect": job.get("voice_dialect", ""),
         "mode": job.get("voice_mode", "basic_tts"),
-        "style": job.get("voice_style", "professional_calm"),
+        "style": job.get("voice_style", "professional_natural"),
+        "pace": job.get("voice_pace", "natural"),
+        "quality": job.get("voice_quality", "high"),
+        "seed": job.get("voice_seed"),
+        "best_of": job.get("voice_best_of", 1),
+        "cfg_value": job.get("voice_cfg"),
+        "inference_timesteps": job.get("voice_inference_timesteps"),
+        "text_normalize": job.get("voice_text_normalize", True),
+        "reference_cleanup": job.get("voice_reference_cleanup", False),
+        "retry_badcase": job.get("voice_retry_badcase", True),
         "checkpoint_path": job.get("voice_checkpoint_path") or "",
         "reference_wav_path": job.get("voice_reference_wav_path") or "",
         "reference_text": job.get("voice_reference_text") or "",

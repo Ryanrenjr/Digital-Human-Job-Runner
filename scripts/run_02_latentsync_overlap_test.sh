@@ -262,7 +262,7 @@ ffmpeg -y -nostdin \
 
 echo "Copying to Windows Desktop..."
 
-WIN_OUT_DIR="/mnt/c/Users/rjxxx/Desktop/DigitalHumanOutput/overlap_tests"
+WIN_OUT_DIR="${DHJR_WINDOWS_OUTPUT_DIR:-/mnt/c/Users/YOUR_WINDOWS_USER/Desktop/DigitalHumanOutput}/overlap_tests"
 mkdir -p "$WIN_OUT_DIR"
 cp "$FINAL_OUT" "$WIN_OUT_DIR/"
 
@@ -270,5 +270,5 @@ echo "===================================="
 echo "Overlap test completed:"
 echo "$FINAL_OUT"
 echo "Windows:"
-echo "C:\\Users\\rjxxx\\Desktop\\DigitalHumanOutput\\overlap_tests\\$(basename "$FINAL_OUT")"
+echo "Windows output directory: $WIN_OUT_DIR"
 echo "===================================="

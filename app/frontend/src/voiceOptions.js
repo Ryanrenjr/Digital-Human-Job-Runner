@@ -54,10 +54,23 @@ export const VOICE_MODES = [
 ]
 
 export const VOICE_STYLE_PRESETS = [
-  ['professional_calm', 'Professional and calm'],
+  ['professional_natural', 'Professional and natural'],
   ['friendly_natural', 'Friendly and natural'],
   ['clear_slow', 'Clear and slightly slow'],
   ['energetic', 'Energetic'],
   ['warm_storytelling', 'Warm storytelling'],
   ['serious_authoritative', 'Serious and authoritative'],
+]
+
+export const VOICE_PACE_PRESETS = [
+  ['slow', '偏慢清楚'],
+  ['natural', '自然语速'],
+  ['slightly_fast', '稍快有力'],
+  ['fast', '快速清晰'],
+]
+
+export const VOICE_QUALITY_PRESETS = [
+  ['standard', '标准'],
+  ['high', '高质量'],
+  ['maximum', '最高质量'],
 ]

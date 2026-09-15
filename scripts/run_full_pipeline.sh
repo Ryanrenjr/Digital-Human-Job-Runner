@@ -2,7 +2,7 @@
 set -e
 
 echo "===================================="
-echo "LeoVisa Digital Human Pipeline"
+echo "Digital Human Job Runner Pipeline"
 echo "Default Mode: FAST"
 echo "720x1280 / 25fps / 15 steps"
 echo "===================================="
@@ -15,5 +15,5 @@ echo ""
 echo "===================================="
 echo "Pipeline completed."
 echo "Final output:"
-echo "C:\\Users\\rjxxx\\Desktop\\DigitalHumanOutput\\final_video.mp4"
+echo "Windows output directory: ${DHJR_WINDOWS_OUTPUT_DIR:-/mnt/c/Users/YOUR_WINDOWS_USER/Desktop/DigitalHumanOutput}"
 echo "===================================="

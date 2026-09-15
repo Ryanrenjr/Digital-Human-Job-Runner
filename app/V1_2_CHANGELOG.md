@@ -1,5 +1,5 @@
 # Changelog — 0.1.2
-## LeoVisa Digital Human Job Runner
+## Digital Human Job Runner
 
 **Version:** 0.1.2  
 **Name:** CleanVideo Local Console V1.2  

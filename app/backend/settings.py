@@ -79,6 +79,8 @@ EXTRA_CORS_ORIGINS = [
 EXTRA_CORS_ORIGINS.extend([
     "http://127.0.0.1:5178",
     "http://localhost:5178",
+    "http://127.0.0.1:5180",
+    "http://localhost:5180",
 ])
 
 FFMPEG_CANDIDATES = [

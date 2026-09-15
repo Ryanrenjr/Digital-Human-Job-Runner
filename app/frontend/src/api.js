@@ -35,6 +35,8 @@ export const getVoiceUrl   = (jobId)   => `${BASE_URL}/jobs/${jobId}/download-vo
 // Voice training
 export const getVoices = () => request('GET', '/voices')
 export const getVoiceLog = (voiceId) => request('GET', `/voices/${voiceId}/log`)
+export const getVoiceTranscripts = (voiceId) => request('GET', `/voices/${voiceId}/transcripts`)
+export const saveVoiceTranscripts = (voiceId, rows) => request('PUT', `/voices/${voiceId}/transcripts`, { rows })
 export const retryVoiceTraining = (voiceId) => request('POST', `/voices/${voiceId}/retry`)
 export const deleteVoice = (voiceId) => request('DELETE', `/voices/${voiceId}`)
 export const trainVoice = async ({ name, language, dialect, style, audioMinutes, audioScore, files }) => {

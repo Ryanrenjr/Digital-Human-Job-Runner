@@ -1,13 +1,16 @@
 import { useRef, useState } from 'react'
+import * as api from '../api'
 import {
   CHINESE_DIALECTS,
   VOICE_LANGUAGES,
   VOICE_STYLE_PRESETS,
 } from '../voiceOptions'
 
-const AUDIO_MIN_MINUTES = 30
-const AUDIO_TARGET_MINUTES = 60
-const AUDIO_IDEAL_MINUTES = 90
+// VoxCPM2 can adapt a speaker from a short, clean set. Keep the UI aligned
+// with the actual fine-tuning pipeline instead of blocking usable recordings.
+const AUDIO_MIN_MINUTES = 5
+const AUDIO_TARGET_MINUTES = 10
+const AUDIO_IDEAL_MINUTES = 20
 const SOUND_SOURCE_ACCEPT = [
   'audio/wav',
   'audio/mpeg',
@@ -200,11 +203,15 @@ export function TrainingPage({
   const [profileName, setProfileName] = useState('')
   const [profileLanguage, setProfileLanguage] = useState('zh')
   const [profileDialect, setProfileDialect] = useState('mandarin')
-  const [profileStyle, setProfileStyle] = useState('professional_calm')
+  const [profileStyle, setProfileStyle] = useState('professional_natural')
   const [trainingNotice, setTrainingNotice] = useState('')
   const [trainingBusy, setTrainingBusy] = useState(false)
   const [retryingVoiceId, setRetryingVoiceId] = useState('')
   const [videoNotice, setVideoNotice] = useState('')
+  const [reviewingVoiceId, setReviewingVoiceId] = useState('')
+  const [transcriptRows, setTranscriptRows] = useState([])
+  const [transcriptNotice, setTranscriptNotice] = useState('')
+  const [transcriptSaving, setTranscriptSaving] = useState(false)
 
   const totalAudioSeconds = audioFiles.reduce((sum, f) => sum + f.duration, 0)
   const totalAudioMinutes = totalAudioSeconds / 60
@@ -249,7 +256,7 @@ export function TrainingPage({
     setProfileName(profile.name || '')
     setProfileLanguage(profile.language || 'zh')
     setProfileDialect(profile.language === 'zh' ? (profile.dialect || 'mandarin') : '')
-    setProfileStyle(profile.style || 'professional_calm')
+    setProfileStyle(profile.style || 'professional_natural')
     setTrainingNotice(t.training.savedDraftNeedReupload.replace('{name}', profile.name || t.training.thisVoice))
     audioSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     window.setTimeout(() => audioRef.current?.click(), 260)
@@ -269,6 +276,31 @@ export function TrainingPage({
       setTrainingNotice(`${t.training.trainingStartFailed}${e.detail || e.message}`)
     } finally {
       setRetryingVoiceId('')
+    }
+  }
+
+  const handleReviewTranscripts = async (profile) => {
+    setTranscriptNotice('')
+    try {
+      const data = await api.getVoiceTranscripts(profile.id)
+      setReviewingVoiceId(profile.id)
+      setTranscriptRows(data.rows || [])
+    } catch (e) {
+      setTranscriptNotice(e.detail || e.message)
+    }
+  }
+
+  const handleSaveTranscripts = async () => {
+    if (!reviewingVoiceId) return
+    setTranscriptSaving(true)
+    setTranscriptNotice('')
+    try {
+      await api.saveVoiceTranscripts(reviewingVoiceId, transcriptRows)
+      setTranscriptNotice(t.training.transcriptSaved)
+    } catch (e) {
+      setTranscriptNotice(e.detail || e.message)
+    } finally {
+      setTranscriptSaving(false)
     }
   }
 
@@ -527,6 +559,11 @@ export function TrainingPage({
                       {retryingVoiceId === profile.id ? t.training.trainingStarting : getProfileActionText(profile)}
                     </button>
                   ) : null}
+                  {profile.trainingStatus === 'finished' ? (
+                    <button className="btn btn-ghost btn-xs" type="button" onClick={() => handleReviewTranscripts(profile)}>
+                      {t.training.reviewTranscripts}
+                    </button>
+                  ) : null}
                   <button className="btn btn-ghost btn-xs" type="button" onClick={() => onDeleteVoiceProfile(profile.id)}>
                     {t.training.remove}
                   </button>
@@ -534,6 +571,34 @@ export function TrainingPage({
               </div>
             ))}
           </div>
+
+          {reviewingVoiceId ? (
+            <div className="transcript-review-panel">
+              <div className="training-panel-head">
+                <div>
+                  <h3>{t.training.transcriptReviewTitle}</h3>
+                  <p>{t.training.transcriptReviewHint}</p>
+                </div>
+                <button className="btn btn-ghost btn-xs" type="button" onClick={() => setReviewingVoiceId('')}>
+                  {t.training.closeReview}
+                </button>
+              </div>
+              {transcriptRows.length === 0 ? <div className="audio-empty">{t.training.noTranscripts}</div> : transcriptRows.map((row, index) => (
+                <label className="voice-field" key={`${row.clip}-${index}`}>
+                  <span>{row.clip || `片段 ${index + 1}`}</span>
+                  <textarea
+                    className="form-textarea transcript-textarea"
+                    value={row.text || ''}
+                    onChange={event => setTranscriptRows(rows => rows.map((item, itemIndex) => itemIndex === index ? { ...item, text: event.target.value } : item))}
+                  />
+                </label>
+              ))}
+              <button className="btn btn-primary btn-sm" type="button" disabled={transcriptSaving || !transcriptRows.length} onClick={handleSaveTranscripts}>
+                {transcriptSaving ? t.training.trainingStarting : t.training.saveTranscripts}
+              </button>
+              {transcriptNotice ? <div className="training-notice">{transcriptNotice}</div> : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="training-panel">

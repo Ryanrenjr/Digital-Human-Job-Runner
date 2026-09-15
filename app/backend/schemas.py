@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel
 
@@ -13,7 +13,16 @@ class JobCreateRequest(BaseModel):
     voice_language: str = "zh"
     voice_dialect: Optional[str] = "mandarin"
     voice_mode: str = "basic_tts"
-    voice_style: str = "professional_calm"
+    voice_style: str = "professional_natural"
+    voice_pace: str = "natural"
+    voice_quality: str = "high"
+    voice_seed: Optional[Union[int, Literal["auto"]]] = "auto"
+    voice_best_of: Optional[int] = None
+    voice_cfg: Optional[float] = None
+    voice_inference_timesteps: Optional[int] = None
+    voice_text_normalize: bool = True
+    voice_reference_cleanup: bool = False
+    voice_retry_badcase: bool = True
     output_type: str = "clean_video"
     shutdown_after_done: bool = False
     subtitle_lines: Optional[List[str]] = None
@@ -51,3 +60,7 @@ class QueueShutdownRequest(BaseModel):
 
 class PullModelRequest(BaseModel):
     model: str
+
+
+class TranscriptReviewRequest(BaseModel):
+    rows: List[dict]

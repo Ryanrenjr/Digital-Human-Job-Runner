@@ -1,4 +1,5 @@
 import logging
+import csv
 import json
 import os
 import re
@@ -43,6 +44,7 @@ from schemas import (
     QueueAutoRunRequest,
     QueueShutdownRequest,
     ScriptFormatRequest,
+    TranscriptReviewRequest,
 )
 import script_assistant
 from settings import (
@@ -294,6 +296,14 @@ def _with_voice_progress(profile: dict) -> dict:
         if match:
             step = int(match.group(1))
             total_steps = 300
+            config_path = log_path.parent / "training" / "lora.yaml"
+            try:
+                config_text = config_path.read_text(encoding="utf-8")
+                config_match = re.search(r"(?m)^max_steps:\s*(\d+)\s*$", config_text)
+                if config_match:
+                    total_steps = max(1, int(config_match.group(1)))
+            except (OSError, ValueError):
+                pass
             progress_text = f"正在训练声音模型：第 {step}/{total_steps} 步"
             progress_percent = min(98, 70 + round((step / total_steps) * 28))
             break
@@ -346,6 +356,52 @@ def get_voice_log(voice_id: str):
     except OSError:
         tail = []
     return {"voice_id": voice_id, "log": "\n".join(tail), "lines": len(tail)}
+
+
+@app.get("/voices/{voice_id}/transcripts")
+def get_voice_transcripts(voice_id: str):
+    profile = load_voice_profile(voice_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="声音不存在。")
+    voice_dir = AI_WORKSPACE / "voices" / voice_id / "training"
+    source = voice_dir / "transcripts_reviewed.tsv"
+    if not source.exists():
+        source = voice_dir / "transcripts_draft.tsv"
+    rows = []
+    if source.exists():
+        with source.open(encoding="utf-8-sig", newline="") as stream:
+            reader = csv.DictReader(stream, delimiter="\t")
+            rows = [
+                {"clip": row.get("clip", ""), "abspath": row.get("abspath", ""), "text": row.get("text", "")}
+                for row in reader
+            ]
+    return {"voice_id": voice_id, "source": source.name if source.exists() else None, "rows": rows}
+
+
+@app.put("/voices/{voice_id}/transcripts")
+def save_voice_transcripts(voice_id: str, req: TranscriptReviewRequest):
+    profile = load_voice_profile(voice_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="声音不存在。")
+    if profile.get("trainingStatus") in {"queued", "training_requested", "training"}:
+        raise HTTPException(status_code=409, detail="训练进行中，暂时不能修改文字。")
+    training_dir = AI_WORKSPACE / "voices" / voice_id / "training"
+    training_dir.mkdir(parents=True, exist_ok=True)
+    target = training_dir / "transcripts_reviewed.tsv"
+    temp = target.with_suffix(".tsv.tmp")
+    with temp.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream, delimiter="\t")
+        writer.writerow(["clip", "abspath", "text"])
+        for row in req.rows:
+            text = str(row.get("text", "")).strip()
+            if not text:
+                continue
+            writer.writerow([str(row.get("clip", "")), str(row.get("abspath", "")), text])
+    temp.replace(target)
+    profile["transcriptReviewPath"] = str(target)
+    profile["transcriptReviewUpdatedAt"] = datetime.now().isoformat()
+    save_voice_profile(profile)
+    return {"success": True, "voice_id": voice_id, "rows": len(req.rows), "source": target.name}
 
 
 @app.delete("/voices/{voice_id}")

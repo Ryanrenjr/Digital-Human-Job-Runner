@@ -2,7 +2,7 @@
 set -e
 
 echo "===================================="
-echo "LeoVisa Digital Human FAST Pipeline"
+echo "Digital Human Job Runner FAST Pipeline"
 echo "===================================="
 
 echo "Checking input files..."
@@ -35,5 +35,5 @@ echo ""
 echo "===================================="
 echo "FAST pipeline completed."
 echo "Final output:"
-echo "C:\\Users\\rjxxx\\Desktop\\DigitalHumanOutput\\final_video.mp4"
+echo "Windows output directory: ${DHJR_WINDOWS_OUTPUT_DIR:-/mnt/c/Users/YOUR_WINDOWS_USER/Desktop/DigitalHumanOutput}"
 echo "===================================="

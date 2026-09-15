@@ -68,3 +68,17 @@ secrets/
 app/config/queue_state.json
 app/config/backgrounds.json
 app/config/dhjr.sqlite3*
+
+# ── Local media, models, benchmarks, and databases ──
+benchmarks/voice/
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.db
+*.sqlite
+*.sqlite3
