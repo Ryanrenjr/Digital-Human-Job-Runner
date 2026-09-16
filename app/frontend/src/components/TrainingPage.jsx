@@ -193,9 +193,14 @@ export function TrainingPage({
   onDeleteVoiceProfile,
   onUploadAvatarVideo,
   uploadingAvatarVideo,
+  outros = [],
+  onUploadOutro,
+  onUpdateOutro,
+  onDeleteOutro,
 }) {
   const videoRef = useRef(null)
   const audioRef = useRef(null)
+  const outroRef = useRef(null)
   const audioSectionRef = useRef(null)
   const [video, setVideo] = useState(null)
   const [videoInfo, setVideoInfo] = useState({ duration: 0, width: 0, height: 0 })
@@ -212,6 +217,11 @@ export function TrainingPage({
   const [transcriptRows, setTranscriptRows] = useState([])
   const [transcriptNotice, setTranscriptNotice] = useState('')
   const [transcriptSaving, setTranscriptSaving] = useState(false)
+  const [outroFile, setOutroFile] = useState(null)
+  const [outroBusy, setOutroBusy] = useState(false)
+  const [editingOutroId, setEditingOutroId] = useState('')
+  const [editingOutroName, setEditingOutroName] = useState('')
+  const [editingOutroDescription, setEditingOutroDescription] = useState('')
 
   const totalAudioSeconds = audioFiles.reduce((sum, f) => sum + f.duration, 0)
   const totalAudioMinutes = totalAudioSeconds / 60
@@ -320,6 +330,48 @@ export function TrainingPage({
       setVideo(null)
       setVideoInfo({ duration: 0, width: 0, height: 0 })
       if (videoRef.current) videoRef.current.value = ''
+    }
+  }
+
+  const handleOutroChange = (event) => {
+    setOutroFile(event.target.files?.[0] || null)
+    event.target.value = ''
+  }
+
+  const handleUploadOutro = async () => {
+    if (!outroFile || !onUploadOutro) return
+    setOutroBusy(true)
+    try {
+      const saved = await onUploadOutro(outroFile)
+      if (saved) setOutroFile(null)
+    } finally {
+      setOutroBusy(false)
+    }
+  }
+
+  const startEditOutro = (outro) => {
+    setEditingOutroId(outro.id)
+    setEditingOutroName(outro.name || '')
+    setEditingOutroDescription(outro.description || '')
+  }
+
+  const cancelEditOutro = () => {
+    setEditingOutroId('')
+    setEditingOutroName('')
+    setEditingOutroDescription('')
+  }
+
+  const saveEditOutro = async () => {
+    if (!editingOutroId || !editingOutroName.trim() || !onUpdateOutro) return
+    setOutroBusy(true)
+    try {
+      const saved = await onUpdateOutro(editingOutroId, {
+        name: editingOutroName.trim(),
+        description: editingOutroDescription.trim(),
+      })
+      if (saved) cancelEditOutro()
+    } finally {
+      setOutroBusy(false)
     }
   }
 
@@ -760,6 +812,87 @@ export function TrainingPage({
           </div>
           {trainingNotice ? <div className="training-notice">{trainingNotice}</div> : null}
         </div>
+      </section>
+
+      <section className="training-panel training-wide outro-library-panel">
+        <div className="training-panel-head">
+          <div>
+            <h2>{t.training.outroTitle}</h2>
+            <p>{t.training.outroSubtitle}</p>
+          </div>
+          <div className="outro-upload-actions">
+            {outroFile ? <span className="outro-selected-file">{outroFile.name}</span> : null}
+            <button className="btn btn-primary btn-sm" type="button" onClick={() => outroRef.current?.click()} disabled={outroBusy}>
+              {t.training.outroChooseFile}
+            </button>
+            <input
+              ref={outroRef}
+              type="file"
+              accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm"
+              hidden
+              onChange={handleOutroChange}
+            />
+            {outroFile ? (
+              <button className="btn btn-ghost btn-sm" type="button" onClick={handleUploadOutro} disabled={outroBusy}>
+                {outroBusy ? t.training.outroUploading : t.training.outroUpload}
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {outros.length === 0 ? (
+          <div className="audio-empty">{t.training.outroEmpty}</div>
+        ) : (
+          <div className="outro-library-grid">
+            {outros.map(outro => (
+              <article className="outro-asset-card" key={outro.id}>
+                <video
+                  className="outro-preview"
+                  src={api.getOutroPreviewUrl(outro.id)}
+                  controls
+                  preload="metadata"
+                  aria-label={outro.name}
+                />
+                {editingOutroId === outro.id ? (
+                  <div className="outro-edit-form">
+                    <label className="voice-field">
+                      <span>{t.training.outroName}</span>
+                      <input className="form-input" value={editingOutroName} onChange={e => setEditingOutroName(e.target.value)} maxLength={80} />
+                    </label>
+                    <label className="voice-field">
+                      <span>{t.training.outroDescription}</span>
+                      <textarea className="form-textarea outro-description-input" value={editingOutroDescription} onChange={e => setEditingOutroDescription(e.target.value)} maxLength={200} />
+                    </label>
+                    <div className="outro-card-actions">
+                      <button className="btn btn-primary btn-xs" type="button" onClick={saveEditOutro} disabled={outroBusy || !editingOutroName.trim()}>
+                        {t.training.outroSave}
+                      </button>
+                      <button className="btn btn-ghost btn-xs" type="button" onClick={cancelEditOutro} disabled={outroBusy}>
+                        {t.training.outroCancel}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="outro-asset-info">
+                      <strong>{outro.name}</strong>
+                      <span>{formatDuration(Number(outro.duration) || 0)}{outro.description ? ` · ${outro.description}` : ''}</span>
+                    </div>
+                    <div className="outro-card-actions">
+                      <button className="btn btn-ghost btn-xs" type="button" onClick={() => startEditOutro(outro)}>
+                        {t.training.outroEdit}
+                      </button>
+                      <button className="btn btn-danger btn-xs" type="button" onClick={() => onDeleteOutro?.(outro.id)}>
+                        {t.training.remove}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+        <div className="form-hint">{t.training.outroManageHint}</div>
       </section>
 
       <section className="training-panel training-wide">

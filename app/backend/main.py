@@ -37,6 +37,14 @@ from runner import (
 )
 from database import database_health
 from job_states import ACTIVE_STATUSES
+from outro_utils import (
+    get_outro_by_id,
+    is_managed_outro_path,
+    load_outros,
+    make_outro_id,
+    resolve_outro_path,
+    save_outros,
+)
 from schemas import (
     HealthResponse,
     JobCreateRequest,
@@ -46,8 +54,10 @@ from schemas import (
     QueueShutdownRequest,
     ScriptFormatRequest,
     TranscriptReviewRequest,
+    OutroUpdateRequest,
 )
 import script_assistant
+from path_utils import local_path
 from settings import (
     AI_WORKSPACE,
     APP_NAME,
@@ -55,6 +65,8 @@ from settings import (
     EXTRA_CORS_ORIGINS,
     FFPROBE_CANDIDATES,
     MAX_BACKGROUND_DURATION_SECONDS,
+    MAX_OUTRO_DURATION_SECONDS,
+    OUTRO_ASSETS_DIR,
     MAX_TRAINING_AUDIO_DURATION_SECONDS,
     MAX_TRAINING_UPLOAD_TOTAL_BYTES,
     MAX_UPLOAD_BYTES,
@@ -173,6 +185,135 @@ def system_readiness(force: bool = False):
     return get_readiness(force=force)
 
 
+@app.get("/outros")
+def get_outro_options():
+    """Return selectable end cards without exposing local filesystem paths."""
+    return [_public_outro(item) for item in load_outros()]
+
+
+def _public_outro(item: dict) -> dict:
+    return {
+        "id": item["id"],
+        "name": item.get("name", item["id"]),
+        "description": item.get("description", ""),
+        "duration": item.get("duration"),
+        "type": item.get("type", "custom"),
+        "preview_url": f"/outros/{item['id']}/preview",
+    }
+
+
+@app.post("/outros/upload")
+async def upload_outro(file: UploadFile = File(...)):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="请选择一个片尾视频文件。")
+
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in {".mp4", ".mov", ".webm"}:
+        raise HTTPException(status_code=400, detail="片尾只支持 MP4、MOV 或 WebM 视频。")
+
+    outro_id = make_outro_id(file.filename)
+    OUTRO_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_path = OUTRO_ASSETS_DIR / f"{outro_id}.upload{suffix}"
+    dst_path = OUTRO_ASSETS_DIR / f"{outro_id}.mp4"
+
+    try:
+        total_size = await _stream_upload(file, tmp_path, MAX_UPLOAD_BYTES)
+        media = _require_video_media(tmp_path, MAX_OUTRO_DURATION_SECONDS)
+        if not any(stream.get("codec_type") == "audio" for stream in media["streams"]):
+            raise HTTPException(status_code=400, detail="片尾视频必须包含声音轨道。")
+
+        ffmpeg = _find_ffmpeg()
+        if not ffmpeg:
+            raise HTTPException(status_code=500, detail="缺少视频转换组件，暂时无法保存片尾。")
+        result = subprocess.run(
+            [
+                ffmpeg, "-y", "-i", str(tmp_path),
+                "-map", "0:v:0", "-map", "0:a:0",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+                "-movflags", "+faststart", str(dst_path),
+            ],
+            capture_output=True,
+            timeout=600,
+        )
+        if result.returncode != 0 or not dst_path.exists():
+            detail = result.stderr.decode("utf-8", errors="replace")[-500:]
+            raise HTTPException(status_code=500, detail=f"片尾视频转换失败：{detail}")
+
+        saved_media = _require_video_media(dst_path, MAX_OUTRO_DURATION_SECONDS)
+        if not any(stream.get("codec_type") == "audio" for stream in saved_media["streams"]):
+            raise HTTPException(status_code=500, detail="片尾转换后缺少声音轨道。")
+        item = {
+            "id": outro_id,
+            "name": Path(file.filename).stem,
+            "description": "自定义片尾素材",
+            "path": str(dst_path),
+            "duration": round(saved_media["duration"], 3),
+            "type": "custom",
+            "createdAt": datetime.now().isoformat(),
+        }
+        save_outros([*load_outros(), item])
+        logger.info("Uploaded outro %s (%d bytes)", outro_id, total_size)
+        return _public_outro(item)
+    except HTTPException:
+        tmp_path.unlink(missing_ok=True)
+        dst_path.unlink(missing_ok=True)
+        raise
+    except Exception as exc:
+        tmp_path.unlink(missing_ok=True)
+        dst_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"保存片尾失败：{exc}")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+@app.get("/outros/{outro_id}/preview")
+def get_outro_preview(outro_id: str):
+    outro = get_outro_by_id(outro_id)
+    if outro is None:
+        raise HTTPException(status_code=404, detail=f"片尾不存在：{outro_id}")
+    path = resolve_outro_path(outro)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="片尾文件不存在。")
+    return FileResponse(path=str(path), media_type="video/mp4")
+
+
+@app.patch("/outros/{outro_id}")
+def update_outro(outro_id: str, req: OutroUpdateRequest):
+    outros = load_outros()
+    item = next((entry for entry in outros if entry.get("id") == outro_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"片尾不存在：{outro_id}")
+
+    if req.name is not None:
+        name = req.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="片尾名称不能为空。")
+        if len(name) > 80:
+            raise HTTPException(status_code=400, detail="片尾名称不能超过 80 个字。")
+        item["name"] = name
+    if req.description is not None:
+        item["description"] = req.description.strip()[:200]
+    save_outros(outros)
+    return _public_outro(item)
+
+
+@app.delete("/outros/{outro_id}")
+def delete_outro(outro_id: str):
+    outros = load_outros()
+    item = next((entry for entry in outros if entry.get("id") == outro_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"片尾不存在：{outro_id}")
+    path = resolve_outro_path(item)
+    if not is_managed_outro_path(path):
+        raise HTTPException(status_code=400, detail="这个片尾由系统配置管理，不能删除。")
+
+    path.unlink(missing_ok=True)
+    save_outros([entry for entry in outros if entry.get("id") != outro_id])
+    logger.info("Deleted outro %s", outro_id)
+    return {"success": True, "id": outro_id}
+
+
 def _with_live_progress(job: dict) -> dict:
     if job.get("status") not in {"starting", "running", "collecting"}:
         return job
@@ -185,31 +326,30 @@ def _with_live_progress(job: dict) -> dict:
 
 
 def _host_path(path_value: str | None) -> Path:
-    raw = str(path_value or "")
-    if raw.startswith("/mnt/") and len(raw) > 7 and raw[6] == "/":
-        drive = raw[5].upper()
-        rest = raw[7:].replace("/", "\\")
-        return Path(f"{drive}:\\{rest}")
-    return Path(raw)
+    return local_path(path_value)
 
 
 def _with_artifacts(job: dict) -> dict:
     job_id         = job.get("job_id", "")
     clean_video    = job.get("paths", {}).get("clean_video", "")
+    final_video    = job.get("paths", {}).get("final_video", "")
     # Derive subtitle_lines_txt even for jobs created before the field was added
     sl_txt_path    = job.get("paths", {}).get("subtitle_lines_txt") or \
                      str(AI_WORKSPACE / "jobs" / job_id / "output" / "subtitle_lines.txt")
     voice_wav      = job.get("paths", {}).get("voice_wav", "")
     cv_exists      = bool(clean_video and _host_path(clean_video).exists())
+    final_exists   = bool(final_video and _host_path(final_video).exists())
     sl_exists      = bool(sl_txt_path and _host_path(sl_txt_path).exists())
     vw_exists      = bool(voice_wav and _host_path(voice_wav).exists())
     job = dict(job)
+    video_exists = final_exists if job.get("outro_id") else cv_exists
     job["artifacts"] = {
-        "clean_video_exists":    cv_exists,
+        "clean_video_exists":    cv_exists or final_exists,
+        "final_video_exists":    final_exists,
         "voice_wav_exists":      vw_exists,
         "subtitle_lines_exists": sl_exists,
-        "download_url":       f"/jobs/{job_id}/download"       if cv_exists else None,
-        "preview_url":        f"/jobs/{job_id}/download"       if cv_exists else None,
+        "download_url":       f"/jobs/{job_id}/download"       if video_exists else None,
+        "preview_url":        f"/jobs/{job_id}/download"       if video_exists else None,
         "voice_download_url": f"/jobs/{job_id}/download-voice" if vw_exists else None,
     }
     if sl_exists:
@@ -625,7 +765,7 @@ def get_background_thumbnail(background_id: str):
     if bg is None:
         raise HTTPException(status_code=404, detail=f"Background not found: {background_id}")
 
-    thumb_path = Path(bg.get("thumbnail_path", ""))
+    thumb_path = local_path(bg.get("thumbnail_path", ""))
     if not thumb_path.exists():
         generate_thumbnail(bg)
 
@@ -641,7 +781,7 @@ def get_background_preview(background_id: str):
     if bg is None:
         raise HTTPException(status_code=404, detail=f"Background not found: {background_id}")
 
-    mp4_path = Path(bg.get("path", ""))
+    mp4_path = local_path(bg.get("path", ""))
     if not mp4_path.exists():
         raise HTTPException(status_code=404, detail="Background video file not found.")
 
@@ -664,8 +804,8 @@ def delete_background(background_id: str):
                 detail="A job is currently running. Stop it before deleting backgrounds.",
             )
 
-    mp4_path   = Path(bg.get("path", ""))
-    thumb_path = Path(bg.get("thumbnail_path", ""))
+    mp4_path   = local_path(bg.get("path", ""))
+    thumb_path = local_path(bg.get("thumbnail_path", ""))
     mp4_path.unlink(missing_ok=True)
     thumb_path.unlink(missing_ok=True)
 
@@ -762,7 +902,12 @@ def create_job_endpoint(req: JobCreateRequest):
                 "training_status": voice_profile.get("trainingStatus"),
                 "revision": voice_profile.get("revision"),
             }
-        job = create_job(req, voice_data=voice_data)
+        outro_data = None
+        if req.output_type == "clean_video" and req.outro_id:
+            outro_data = get_outro_by_id(req.outro_id)
+            if outro_data is None:
+                raise HTTPException(status_code=404, detail="所选片尾不存在，请刷新页面后重试。")
+        job = create_job(req, voice_data=voice_data, outro_data=outro_data)
     except HTTPException:
         raise
     except Exception as e:
@@ -863,12 +1008,13 @@ def download_job(job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
 
-    clean_video = job.get("paths", {}).get("clean_video", "")
-    clean_video_path = _host_path(clean_video)
-    if not clean_video or not clean_video_path.exists():
+    paths = job.get("paths", {})
+    video = paths.get("final_video") if job.get("outro_id") else paths.get("clean_video")
+    video_path = _host_path(video)
+    if not video or not video_path.exists():
         raise HTTPException(status_code=404, detail="clean_video.mp4 not found for this job.")
 
-    return FileResponse(path=str(clean_video_path), media_type="video/mp4")
+    return FileResponse(path=str(video_path), media_type="video/mp4")
 
 
 @app.get("/jobs/{job_id}/download-voice")

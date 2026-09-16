@@ -32,6 +32,8 @@ const INITIAL = {
   voice_reference_cleanup: false,
   voice_retry_badcase: true,
   output_type: 'clean_video',
+  outro_id: null,
+  subtitle_enabled: true,
   shutdown_after_done: false,
   // AI-generated extras (sent with job create but not shown as form fields)
   subtitle_lines: null,
@@ -49,6 +51,7 @@ export function CreateJobForm({
   uploadingBackground,
   t,
   voiceProfiles = [],
+  outros = [],
 }) {
   const [fields, setFields] = useState(INITIAL)
   const [errors, setErrors] = useState({})
@@ -85,6 +88,7 @@ export function CreateJobForm({
   const set = (key, value) => {
     setFields(f => {
       const next = { ...f, [key]: value }
+      if (key === 'output_type' && value !== 'clean_video') next.outro_id = null
       if (key === 'voice_language' && value !== 'zh') next.voice_dialect = ''
       if (key === 'voice_language' && value === 'zh' && !next.voice_dialect) next.voice_dialect = 'mandarin'
       if (key === 'voice_id') {
@@ -311,6 +315,53 @@ export function CreateJobForm({
             t={t}
           />
           {errors.background_id && <div className="form-error">{errors.background_id}</div>}
+        </div>
+      )}
+
+      {fields.output_type === 'clean_video' && (
+        <div className="form-group">
+          <label className="form-label">{t.form.outro}</label>
+          <select
+            className="form-select"
+            value={fields.outro_id || ''}
+            onChange={e => set('outro_id', e.target.value || null)}
+          >
+            <option value="">{t.form.noOutro}</option>
+            {outros.map(outro => (
+              <option key={outro.id} value={outro.id}>
+                {outro.name}{outro.duration ? ` · ${Number(outro.duration).toFixed(1)}s` : ''}
+              </option>
+            ))}
+          </select>
+          <div className="form-hint">{t.form.outroHint}</div>
+        </div>
+      )}
+
+      {fields.output_type === 'clean_video' && (
+        <div className={`form-group caption-settings-panel${fields.subtitle_enabled ? ' enabled' : ''}`}>
+          <div className="caption-settings-main">
+            <div>
+              <div className="caption-settings-title">{t.form.captionPresetTitle}</div>
+              <div className="caption-settings-name">{t.form.captionPresetName}</div>
+            </div>
+            <label className="ios-switch" title={t.form.autoSubtitles}>
+              <input
+                type="checkbox"
+                checked={fields.subtitle_enabled}
+                onChange={e => set('subtitle_enabled', e.target.checked)}
+              />
+              <span className="ios-switch-track" aria-hidden="true" />
+            </label>
+          </div>
+          <div className="caption-settings-tags">
+            <span>{t.form.captionTagReadable}</span>
+            <span>{t.form.captionTagOneLine}</span>
+            <span>{t.form.captionTagAutoBreak}</span>
+          </div>
+          <div className="caption-style-preview" aria-hidden="true">
+            <span>{t.form.captionPreview}</span>
+          </div>
+          <div className="form-hint">{t.form.captionPresetHint}</div>
         </div>
       )}
 

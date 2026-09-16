@@ -12,6 +12,7 @@ from typing import Optional
 
 from database import claim_job
 from job_states import ACTIVE_STATUSES
+from path_utils import local_path
 from job_store import list_jobs, load_job, patch_job, save_job
 from settings import (
     AI_WORKSPACE,
@@ -39,12 +40,7 @@ def _ps_lines() -> list[str]:
 
 
 def _host_path(value: str | Path) -> Path:
-    raw = str(value or "")
-    if raw.startswith("/mnt/") and len(raw) > 7 and raw[6] == "/":
-        drive = raw[5].upper()
-        rest = raw[7:].replace("/", "\\")
-        return Path(f"{drive}:\\{rest}")
-    return Path(raw)
+    return local_path(value)
 
 
 def _run_metadata(job: dict | None) -> dict:
@@ -251,6 +247,7 @@ def _build_wsl_command(script: str, job_id: str, run_id: str = "") -> list[str]:
         "DHJR_JOBS_DIR": f"{app_workspace}/jobs",
         "DHJR_BACKGROUNDS_JSON": f"{app_workspace}/app/config/backgrounds.json",
         "DHJR_BACKGROUND_ASSETS_DIR": f"{app_workspace}/assets/backgrounds",
+        "DHJR_OUTROS_JSON": f"{app_workspace}/app/config/outros.json",
         "DHJR_INPUT_DIR": f"{job_workspace}/input",
         "DHJR_OUTPUT_DIR": f"{job_workspace}/output",
         "DHJR_JOB_WORKSPACE": f"{job_workspace}/workspace",
@@ -279,7 +276,17 @@ def _build_wsl_command(script: str, job_id: str, run_id: str = "") -> list[str]:
 
 
 def _build_local_command(script: str, job_id: str, run_id: str = "") -> list[str]:
-    return ["env", f"DHJR_RUN_ID={run_id}", "bash", script, job_id]
+    return [
+        "env",
+        f"DHJR_RUN_ID={run_id}",
+        f"DHJR_ENGINE_WORKSPACE={ENGINE_WORKSPACE}",
+        f"DHJR_CONDA_EXE={CONDA_EXE}",
+        f"DHJR_VOXCPM_ENV={VOXCPM_ENV}",
+        f"DHJR_LATENTSYNC_ENV={LATENTSYNC_ENV}",
+        "bash",
+        script,
+        job_id,
+    ]
 
 
 def _trained_voice_ready(job: dict) -> bool:

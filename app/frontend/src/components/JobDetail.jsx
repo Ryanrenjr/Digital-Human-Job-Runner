@@ -134,6 +134,7 @@ export function JobDetail({ job, log, onClose, onRefreshLog, onCancel, onReset, 
           <Row label={t.detail.titleLabel}   value={job.title} />
           <Row label={t.detail.subtitleLabel}value={job.subtitle} />
           <Row label={t.detail.background}   value={job.background_id} />
+          <Row label={t.detail.outro}        value={job.outro_name || t.form.noOutro} />
           <Row
             label={t.detail.voice}
             value={job.voice_name || (job.voice_id === 'default_voice' ? t.form.systemVoice : job.voice_id)}

@@ -45,7 +45,7 @@ def validate_job(job: dict, job_id: str) -> None:
     if job.get("output_type") != "clean_video":
         raise ValueError(
             f"output_type '{job.get('output_type')}' is not supported. "
-            f"final_video is not implemented in V1."
+            f"Only clean_video jobs can append an outro."
         )
 
 
@@ -65,9 +65,10 @@ def copy_audio_files(job_id: str) -> None:
             print(f"[WARN] Audio file not found, skipping: {src_name}")
 
 
-def copy_to_windows_desktop(job_id: str, src: Path) -> Path:
+def copy_to_windows_desktop(job_id: str, src: Path, has_outro: bool = False) -> Path:
     WINDOWS_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    dst = WINDOWS_OUTPUT_DIR / f"{job_id}_clean_video.mp4"
+    suffix = "final" if has_outro else "clean_video"
+    dst = WINDOWS_OUTPUT_DIR / f"{job_id}_{suffix}.mp4"
     shutil.copy2(src, dst)
     print(f"[INFO] Copied to Windows Desktop: {dst}")
     return dst
@@ -96,13 +97,20 @@ def main() -> None:
     except ValueError as e:
         fail_job(job, str(e))
 
-    # --- Check clean_video.mp4 exists ---
+    # --- Choose the finished artifact ---
     job_output_dir = JOBS_DIR / job_id / "output"
     clean_video_src = job_output_dir / "clean_video.mp4"
     if not clean_video_src.exists():
         fail_job(job, f"clean_video.mp4 not found: {clean_video_src}")
 
     print(f"[INFO] clean_video.mp4 found: {clean_video_src}")
+    has_outro = bool(job.get("outro_id"))
+    final_video_src = job_output_dir / "final_video.mp4"
+    if has_outro:
+        if not final_video_src.exists():
+            fail_job(job, f"final_video.mp4 not found: {final_video_src}")
+        print(f"[INFO] final_video.mp4 found: {final_video_src}")
+    finished_video = final_video_src if has_outro else clean_video_src
 
     # --- Ensure job output and logs dirs exist ---
     job_logs_dir = JOBS_DIR / job_id / "logs"
@@ -112,8 +120,8 @@ def main() -> None:
 
     # --- Copy clean_video to job output ---
     print(f"[INFO] Collecting output files...")
-    job_clean_video = job_output_dir / "clean_video.mp4"
-    print(f"[INFO] Job output already contains clean_video.mp4; no shared output copy needed.")
+    job_clean_video = finished_video
+    print(f"[INFO] Finished video: {job_clean_video}")
 
     # --- Copy audio files (non-fatal if missing) ---
     try:
@@ -124,7 +132,7 @@ def main() -> None:
     # --- Copy to Windows Desktop ---
     print(f"[INFO] Copying to Windows Desktop...")
     try:
-        windows_dst = copy_to_windows_desktop(job_id, job_clean_video)
+        windows_dst = copy_to_windows_desktop(job_id, job_clean_video, has_outro)
     except Exception as e:
         fail_job(job, f"Failed to copy to Windows Desktop: {e}")
 
@@ -139,7 +147,8 @@ def main() -> None:
         progress["message"] = "CleanVideo generated successfully"
 
         paths = {**job.get("paths", {})}
-        paths["clean_video"] = str(job_clean_video)
+        paths["clean_video"] = str(clean_video_src)
+        paths["final_video"] = str(final_video_src) if has_outro else None
         paths["voice_wav"] = str(job_output_dir / "voice.wav")
         paths["voice_for_latentsync_wav"] = str(job_output_dir / "voice_for_latentsync.wav")
         paths["windows_desktop_output"] = str(windows_dst)

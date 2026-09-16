@@ -276,6 +276,11 @@ def main() -> None:
             except (FileNotFoundError, ValueError) as e:
                 fail_job(job, str(e))
             print(f"[INFO] Legacy background resolved: {bg_src}")
+        if job.get("outro_id"):
+            outro_snapshot = Path(job.get("paths", {}).get("outro_snapshot", ""))
+            if not outro_snapshot.exists():
+                fail_job(job, f"所选片尾素材不存在：{outro_snapshot}")
+            print(f"[INFO] Outro snapshot found: {outro_snapshot}")
     else:
         bg_src = None
         print(f"[INFO] voice_only — skipping background switch")
@@ -314,7 +319,7 @@ def main() -> None:
     print(f"[INFO] Updating job.json...")
     try:
         started_at = job.get("started_at") or now_iso()
-        paths = build_paths(job_id, output_type)
+        paths = build_paths(job_id, output_type, job.get("outro_id"))
         progress = {
             "stage": "prepared",
             "current_window": 0,

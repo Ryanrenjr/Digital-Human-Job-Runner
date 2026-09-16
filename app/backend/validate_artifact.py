@@ -42,9 +42,16 @@ def validate_audio(path: Path) -> float:
     return duration(audio, data.get("format", {}))
 
 
-def validate_video(path: Path, audio_path: Path, expected_width: int, expected_height: int, tolerance: float) -> None:
-    if not path.is_file() or path.stat().st_size <= 1024 * 1024:
-        raise ValueError(f"video artifact is missing or too small: {path}")
+def validate_video(
+    path: Path,
+    audio_path: Path,
+    expected_width: int,
+    expected_height: int,
+    tolerance: float,
+    min_bytes: int,
+) -> None:
+    if not path.is_file() or path.stat().st_size < min_bytes:
+        raise ValueError(f"video artifact is missing or too small: {path} (minimum {min_bytes} bytes)")
     data = probe(path)
     video = next((item for item in data.get("streams", []) if item.get("codec_type") == "video"), None)
     audio = next((item for item in data.get("streams", []) if item.get("codec_type") == "audio"), None)
@@ -85,13 +92,21 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=720)
     parser.add_argument("--height", type=int, default=1280)
     parser.add_argument("--tolerance", type=float, default=0.5)
+    parser.add_argument("--min-bytes", type=int, default=131072)
     args = parser.parse_args()
     try:
         if args.audio_only:
             seconds = validate_audio(Path(args.audio_only))
             print(f"audio artifact ok: duration={seconds:.3f}s")
         elif args.video and args.reference_audio:
-            validate_video(Path(args.video), Path(args.reference_audio), args.width, args.height, args.tolerance)
+            validate_video(
+                Path(args.video),
+                Path(args.reference_audio),
+                args.width,
+                args.height,
+                args.tolerance,
+                args.min_bytes,
+            )
         else:
             parser.error("provide --audio FILE or VIDEO REFERENCE_AUDIO")
     except (OSError, ValueError, subprocess.SubprocessError) as exc:

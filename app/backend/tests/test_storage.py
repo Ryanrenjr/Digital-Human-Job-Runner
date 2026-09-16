@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 from job_store import create_job, delete_job, list_jobs, load_job, save_job
 from database import claim_gpu_lease, claim_job, get_gpu_lease, release_gpu_lease
 import database
+from path_utils import windows_path_to_wsl
 from job_store import build_paths, patch_job
 from runner import _build_wsl_command, _to_wsl_path
 import runner
@@ -82,6 +83,13 @@ class StorageTests(unittest.TestCase):
         converted = _to_wsl_path("scripts/run_cleanvideo_job.sh")
         self.assertTrue(converted.endswith("/scripts/run_cleanvideo_job.sh"))
 
+    def test_windows_asset_path_is_readable_from_wsl(self):
+        windows_path = r"C:\Users\rjxxx\assets\background.mp4"
+        self.assertEqual(
+            windows_path_to_wsl(windows_path),
+            "/mnt/c/Users/rjxxx/assets/background.mp4",
+        )
+
     def test_job_claim_allows_only_one_concurrent_runner(self):
         job = create_job(self.make_request())
 
@@ -106,6 +114,10 @@ class StorageTests(unittest.TestCase):
         self.assertIn("DHJR_PIPELINE_SCRIPTS_DIR=", command)
         self.assertNotIn("DigitalHumanOutput", command)
 
+    def test_local_pipeline_command_passes_engine_workspace(self):
+        command = runner._build_local_command("scripts/run_cleanvideo_job.sh", "job-a", "run-a")
+        self.assertIn(f"DHJR_ENGINE_WORKSPACE={runner.ENGINE_WORKSPACE}", command)
+
     def test_clean_video_job_snapshots_background(self):
         background = TEST_ROOT / "assets" / "avatar.mp4"
         background.parent.mkdir(parents=True, exist_ok=True)
@@ -126,6 +138,30 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(snapshot.read_bytes(), b"background-data")
         background.unlink()
         self.assertTrue(snapshot.exists())
+        delete_job(job["job_id"])
+
+    def test_clean_video_job_snapshots_selected_outro(self):
+        background = TEST_ROOT / "assets" / "avatar.mp4"
+        outro = TEST_ROOT / "assets" / "outro.mp4"
+        background.parent.mkdir(parents=True, exist_ok=True)
+        background.write_bytes(b"background-data")
+        outro.write_bytes(b"outro-data")
+        config = TEST_ROOT / "app" / "config" / "backgrounds.json"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text(json.dumps([{
+            "id": "background-test",
+            "type": "custom",
+            "path": str(background),
+            "thumbnail_path": str(TEST_ROOT / "thumb.jpg"),
+        }]), encoding="utf-8")
+
+        request = self.make_request()
+        request.output_type = "clean_video"
+        request.outro_id = "outro-test"
+        job = create_job(request, outro_data={"name": "测试片尾", "path": str(outro)})
+        snapshot = Path(job["paths"]["outro_snapshot"])
+        self.assertEqual(snapshot.read_bytes(), b"outro-data")
+        self.assertEqual(job["outro_name"], "测试片尾")
         delete_job(job["job_id"])
 
     def test_cancelled_run_rejects_stale_runner_write(self):
@@ -192,6 +228,7 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(current["progress"]["percent"], 8)
         delete_job(job["job_id"])
 
+    @unittest.skipUnless(os.name == "nt", "native Windows install test")
     def test_native_windows_ollama_runner_is_detected(self):
         with tempfile.TemporaryDirectory() as tmp:
             install_dir = Path(tmp) / "Ollama"

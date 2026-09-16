@@ -2,7 +2,7 @@
 set -e
 
 AI_WORKSPACE="${DHJR_WORKSPACE:-$HOME/AI-Workspace}"
-ENGINE_WORKSPACE="${DHJR_ENGINE_WORKSPACE:-$AI_WORKSPACE}"
+ENGINE_WORKSPACE="${DHJR_ENGINE_WORKSPACE:-$HOME/AI-Workspace}"
 . "$AI_WORKSPACE/scripts/activate_conda_env.sh"
 
 if [ $# -ne 1 ]; then

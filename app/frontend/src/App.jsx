@@ -41,6 +41,7 @@ function mergeVoiceProfiles(current, incoming) {
 export default function App() {
   const [backendOnline,       setBackendOnline]       = useState(null)
   const [backgrounds,         setBackgrounds]         = useState([])
+  const [outros,              setOutros]              = useState([])
   const [jobs,                setJobs]                = useState([])
   const [selectedJobId,       setSelectedJobId]       = useState(null)
   const [jobLog,              setJobLog]              = useState(null)
@@ -117,6 +118,11 @@ export default function App() {
     catch (e) { console.warn('backgrounds:', e) }
   }, [t.messages.backendConnectionFailed])
 
+  const loadOutros = useCallback(async () => {
+    try   { setOutros(await api.getOutros()) }
+    catch (e) { console.warn('outros:', e) }
+  }, [])
+
   const loadJobs = useCallback(async () => {
     try   { setJobs(await api.getJobs()) }
     catch (e) { console.warn('jobs:', e) }
@@ -174,7 +180,7 @@ export default function App() {
     return () => clearInterval(timer)
   }, [loadReadiness])
 
-  useEffect(() => { loadBackgrounds(); loadBackendVoiceProfiles() }, [loadBackgrounds, loadBackendVoiceProfiles])
+  useEffect(() => { loadBackgrounds(); loadOutros(); loadBackendVoiceProfiles() }, [loadBackgrounds, loadOutros, loadBackendVoiceProfiles])
 
   useEffect(() => {
     loadJobs()
@@ -220,6 +226,43 @@ export default function App() {
     const background = await handleUploadBackground(file)
     if (background) handlePageChange('jobs')
     return background
+  }
+
+  const handleUploadOutro = async (file) => {
+    try {
+      const outro = await api.uploadOutro(file)
+      await loadOutros()
+      showBanner('success', t.training.outroUploadSuccess)
+      return outro
+    } catch (e) {
+      showBanner('error', `${t.training.outroUploadFail}: ${e.detail || e.message}`)
+      return null
+    }
+  }
+
+  const handleUpdateOutro = async (outroId, payload) => {
+    try {
+      const outro = await api.updateOutro(outroId, payload)
+      await loadOutros()
+      showBanner('success', t.training.outroUpdateSuccess)
+      return outro
+    } catch (e) {
+      showBanner('error', `${t.training.outroUpdateFail}: ${e.detail || e.message}`)
+      return null
+    }
+  }
+
+  const handleDeleteOutro = async (outroId) => {
+    if (!window.confirm(t.training.outroDeleteConfirm)) return false
+    try {
+      await api.deleteOutro(outroId)
+      await loadOutros()
+      showBanner('success', t.training.outroDeleteSuccess)
+      return true
+    } catch (e) {
+      showBanner('error', `${t.training.outroDeleteFail}: ${e.detail || e.message}`)
+      return false
+    }
   }
 
   const handleDeleteBackground = async (bgId) => {
@@ -398,6 +441,10 @@ export default function App() {
           onDeleteVoiceProfile={handleDeleteVoiceProfile}
           onUploadAvatarVideo={handleUploadTrainingAvatarVideo}
           uploadingAvatarVideo={uploadingBackground}
+          outros={outros}
+          onUploadOutro={handleUploadOutro}
+          onUpdateOutro={handleUpdateOutro}
+          onDeleteOutro={handleDeleteOutro}
         />
       ) : (
         <main className="main">
@@ -413,6 +460,7 @@ export default function App() {
                 ...profile,
                 name: profile.id === 'default_voice' ? t.form.systemVoice : profile.name,
               })).filter(profile => profile.id === 'default_voice' || profile.trainingStatus === 'finished')}
+              outros={outros}
               t={t}
             />
           </div>

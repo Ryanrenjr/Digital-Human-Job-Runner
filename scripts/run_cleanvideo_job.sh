@@ -2,7 +2,7 @@
 set -e
 
 AI_WORKSPACE="${DHJR_WORKSPACE:-$HOME/AI-Workspace}"
-ENGINE_WORKSPACE="${DHJR_ENGINE_WORKSPACE:-$AI_WORKSPACE}"
+ENGINE_WORKSPACE="${DHJR_ENGINE_WORKSPACE:-$HOME/AI-Workspace}"
 PIPELINE_SCRIPTS_DIR="${DHJR_PIPELINE_SCRIPTS_DIR:-$AI_WORKSPACE/scripts}"
 . "$AI_WORKSPACE/scripts/activate_conda_env.sh"
 
@@ -179,21 +179,107 @@ echo "===================================="
 echo "Step 6: Check CleanVideo"
 echo "===================================="
 CLEAN_VIDEO="$OUTPUT_DIR/clean_video.mp4"
+OUTRO_VIDEO="$DHJR_INPUT_DIR/outro.mp4"
 
 if [ ! -f "$CLEAN_VIDEO" ]; then
     fail_job "clean_video.mp4 not found after LatentSync: $CLEAN_VIDEO"
 fi
 
 CLEAN_VIDEO_SIZE=$(stat -c%s "$CLEAN_VIDEO" 2>/dev/null || echo 0)
-if [ "$CLEAN_VIDEO_SIZE" -lt 1048576 ]; then
-    fail_job "clean_video.mp4 is too small (${CLEAN_VIDEO_SIZE} bytes), expected > 1MB"
+MIN_VIDEO_BYTES="${DHJR_MIN_VIDEO_BYTES:-131072}"
+if [ "$CLEAN_VIDEO_SIZE" -lt "$MIN_VIDEO_BYTES" ]; then
+    fail_job "clean_video.mp4 is too small (${CLEAN_VIDEO_SIZE} bytes), expected >= ${MIN_VIDEO_BYTES} bytes"
 fi
 echo "[INFO] clean_video.mp4: OK (${CLEAN_VIDEO_SIZE} bytes)"
 python3 "$AI_WORKSPACE/app/backend/validate_artifact.py" \
     "$CLEAN_VIDEO" "$VOICE_WAV" \
     --width "${DHJR_EXPECTED_VIDEO_WIDTH:-720}" \
     --height "${DHJR_EXPECTED_VIDEO_HEIGHT:-1280}" \
-    --tolerance "${DHJR_AV_SYNC_TOLERANCE:-0.5}"
+    --tolerance "${DHJR_AV_SYNC_TOLERANCE:-0.5}" \
+    --min-bytes "$MIN_VIDEO_BYTES"
+
+# Render captions from the exact generated voice timeline. This keeps captions
+# aligned with the audio without starting a second ASR process.
+SUBTITLE_ENABLED=$(PYTHONPATH="$AI_WORKSPACE/app/backend" python3 "$JOB_STATE_GET" "$JOB_ID" subtitle_enabled 2>/dev/null | tail -n 1 || echo "yes")
+if [ "$SUBTITLE_ENABLED" = "yes" ]; then
+    echo ""
+    echo "===================================="
+    echo "Step 6a: Render automatic captions"
+    echo "===================================="
+    update_progress captions 93 "正在添加自动字幕"
+    CAPTIONS_JSON="$OUTPUT_DIR/captions.json"
+    CAPTIONS_ASS="$OUTPUT_DIR/captions.ass"
+    CAPTIONED_TMP="$OUTPUT_DIR/clean_video.captioned.tmp.mp4"
+    CAPTION_FONT_NAME="${DHJR_CAPTION_FONT_NAME:-Noto Sans CJK SC}"
+    CAPTION_GEOMETRY=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=width,height -of csv=s=x:p=0 "$CLEAN_VIDEO" 2>/dev/null || true)
+    IFS='x' read -r CAPTION_WIDTH CAPTION_HEIGHT <<< "$CAPTION_GEOMETRY"
+    if [[ ! "$CAPTION_WIDTH" =~ ^[0-9]+$ || ! "$CAPTION_HEIGHT" =~ ^[0-9]+$ ]]; then
+        fail_job "could not read video dimensions for captions: $CAPTION_GEOMETRY"
+    fi
+    if [ ! -f "$CAPTIONS_JSON" ]; then
+        fail_job "captions.json not found after voice generation: $CAPTIONS_JSON"
+    fi
+    if ! fc-match "$CAPTION_FONT_NAME" >/dev/null 2>&1; then
+        fail_job "caption font not found in WSL: $CAPTION_FONT_NAME"
+    fi
+    python3 "$AI_WORKSPACE/scripts/render_captions.py" \
+        "$CAPTIONS_JSON" "$CAPTIONS_ASS" \
+        --font-name "$CAPTION_FONT_NAME" \
+        --width "$CAPTION_WIDTH" --height "$CAPTION_HEIGHT"
+    if ! ffmpeg -filters 2>/dev/null | grep -qE '(^| )ass[[:space:]]|(^| )subtitles[[:space:]]'; then
+        fail_job "当前 FFmpeg 未启用 libass 字幕滤镜，无法渲染自动字幕。"
+    fi
+    rm -f "$CAPTIONED_TMP"
+    ffmpeg -y -nostdin -i "$CLEAN_VIDEO" -vf "ass=$CAPTIONS_ASS" \
+        -map 0:v:0 -map 0:a? -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p \
+        -c:a copy -movflags +faststart "$CAPTIONED_TMP"
+    mv -f "$CAPTIONED_TMP" "$CLEAN_VIDEO"
+    python3 "$AI_WORKSPACE/app/backend/validate_artifact.py" \
+        "$CLEAN_VIDEO" "$VOICE_WAV" \
+        --width "$CAPTION_WIDTH" --height "$CAPTION_HEIGHT" \
+        --tolerance "${DHJR_AV_SYNC_TOLERANCE:-0.5}" \
+        --min-bytes "$MIN_VIDEO_BYTES"
+    echo "[INFO] automatic captions rendered with $CAPTION_FONT_NAME"
+fi
+
+# Optional account-specific end card. The main CleanVideo remains available
+# as the intermediate artifact; the selected end card becomes final_video.mp4.
+if [ -f "$OUTRO_VIDEO" ]; then
+    echo ""
+    echo "===================================="
+    echo "Step 6b: Append selected outro"
+    echo "===================================="
+    update_progress outro 96 "正在添加片尾"
+    FINAL_VIDEO="$OUTPUT_DIR/final_video.mp4"
+    FINAL_TMP="$OUTPUT_DIR/final_video.mp4.tmp"
+    VIDEO_GEOMETRY=$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=width,height,r_frame_rate -of csv=s=x:p=0 "$CLEAN_VIDEO" 2>/dev/null || true)
+    IFS='x' read -r BASE_WIDTH BASE_HEIGHT BASE_FPS <<< "$VIDEO_GEOMETRY"
+    if [[ ! "$BASE_WIDTH" =~ ^[0-9]+$ || ! "$BASE_HEIGHT" =~ ^[0-9]+$ || -z "$BASE_FPS" ]]; then
+        fail_job "could not read output video geometry: $VIDEO_GEOMETRY"
+    fi
+    rm -f "$FINAL_TMP" "$FINAL_VIDEO"
+    ffmpeg -y -nostdin \
+        -i "$CLEAN_VIDEO" \
+        -i "$OUTRO_VIDEO" \
+        -filter_complex \
+        "[0:v]setpts=PTS-STARTPTS,format=yuv420p[v0];[1:v]scale=${BASE_WIDTH}:${BASE_HEIGHT}:force_original_aspect_ratio=decrease,pad=${BASE_WIDTH}:${BASE_HEIGHT}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${BASE_FPS},format=yuv420p,setpts=PTS-STARTPTS[v1];[0:a]aresample=async=1:first_pts=0[a0];[1:a]aresample=async=1:first_pts=0[a1];[v0][a0][v1][a1]concat=n=2:v=1:a=1[v][a]" \
+        -map "[v]" -map "[a]" \
+        -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p \
+        -c:a aac -b:a 192k -movflags +faststart \
+        "$FINAL_TMP"
+    mv -f "$FINAL_TMP" "$FINAL_VIDEO"
+    FINAL_SIZE=$(stat -c%s "$FINAL_VIDEO" 2>/dev/null || echo 0)
+    if [ "$FINAL_SIZE" -lt "$MIN_VIDEO_BYTES" ]; then
+        fail_job "final_video.mp4 is too small (${FINAL_SIZE} bytes), expected >= ${MIN_VIDEO_BYTES} bytes"
+    fi
+    ffprobe -v error -select_streams v:0 -show_entries stream=width,height \
+        -of csv=p=0 "$FINAL_VIDEO" >/dev/null
+    ffprobe -v error -select_streams a:0 -show_entries stream=codec_name \
+        -of csv=p=0 "$FINAL_VIDEO" >/dev/null
+    echo "[INFO] final_video.mp4: OK (${FINAL_SIZE} bytes)"
+fi
 
 # ============================================================
 echo ""

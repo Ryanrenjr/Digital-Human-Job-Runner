@@ -10,6 +10,7 @@ from pathlib import PureWindowsPath
 
 from settings import AI_WORKSPACE, CONDA_EXE, ENGINE_WORKSPACE, VOXCPM_ENV
 from database import claim_gpu_lease, release_gpu_lease
+from path_utils import local_path
 from voice_store import list_voice_profiles, load_voice_profile, save_voice_profile
 
 
@@ -34,11 +35,7 @@ def _to_wsl_path(path: str | Path) -> str:
 
 
 def _host_path(path: str | Path) -> Path:
-    raw = str(path or "")
-    if raw.startswith("/mnt/") and len(raw) > 7 and raw[6] == "/":
-        rest = raw[7:].replace("/", "\\")
-        return Path(f"{raw[5].upper()}:\\{rest}")
-    return Path(raw)
+    return local_path(path)
 
 
 def _run_metadata(profile: dict | None) -> dict:

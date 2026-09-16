@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from settings import BACKGROUND_ASSETS_DIR, BACKGROUNDS_JSON, CUSTOM_BACKGROUNDS_DIR, FFMPEG_CANDIDATES, THUMBNAILS_DIR
+from path_utils import local_path
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +37,8 @@ def generate_thumbnail(bg: dict) -> bool:
         logger.warning("ffmpeg not found — skipping thumbnail for %s", bg.get("id"))
         return False
 
-    src = Path(bg.get("path", ""))
-    dst = Path(bg.get("thumbnail_path", ""))
+    src = local_path(bg.get("path", ""))
+    dst = local_path(bg.get("thumbnail_path", ""))
     if not src or not dst:
         return False
     if not src.exists():

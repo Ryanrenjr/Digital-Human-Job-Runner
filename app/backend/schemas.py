@@ -24,6 +24,8 @@ class JobCreateRequest(BaseModel):
     voice_reference_cleanup: bool = False
     voice_retry_badcase: bool = True
     output_type: str = "clean_video"
+    outro_id: Optional[str] = None
+    subtitle_enabled: bool = True
     shutdown_after_done: bool = False
     subtitle_lines: Optional[List[str]] = None
     opening_hook: Optional[str] = None
@@ -65,3 +67,8 @@ class PullModelRequest(BaseModel):
 
 class TranscriptReviewRequest(BaseModel):
     rows: List[dict]
+
+
+class OutroUpdateRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None

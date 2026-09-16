@@ -20,6 +20,10 @@ async function request(method, path, body) {
 export const getHealth      = ()        => request('GET',    '/health')
 export const getSystemReadiness = (force = false) => request('GET', `/system/readiness?force=${force ? 'true' : 'false'}`)
 export const getBackgrounds = ()        => request('GET',    '/backgrounds')
+export const getOutros      = ()        => request('GET',    '/outros')
+export const updateOutro    = (outroId, payload) => request('PATCH', `/outros/${outroId}`, payload)
+export const deleteOutro    = (outroId) => request('DELETE', `/outros/${outroId}`)
+export const getOutroPreviewUrl = (outroId) => `${BASE_URL}/outros/${outroId}/preview`
 export const createJob      = (payload) => request('POST',   '/jobs', payload)
 export const getJobs        = ()        => request('GET',    '/jobs')
 export const getJob         = (jobId)   => request('GET',    `/jobs/${jobId}`)
@@ -68,6 +72,20 @@ export const uploadBackground = async (file) => {
   const form = new FormData()
   form.append('file', file)
   const res  = await fetch(`${BASE_URL}/backgrounds/upload`, { method: 'POST', body: form })
+  const data = await res.json().catch(() => ({ detail: res.statusText }))
+  if (!res.ok) {
+    const err = new Error(data.detail || JSON.stringify(data))
+    err.status = res.status
+    err.detail = data.detail
+    throw err
+  }
+  return data
+}
+
+export const uploadOutro = async (file) => {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${BASE_URL}/outros/upload`, { method: 'POST', body: form })
   const data = await res.json().catch(() => ({ detail: res.statusText }))
   if (!res.ok) {
     const err = new Error(data.detail || JSON.stringify(data))

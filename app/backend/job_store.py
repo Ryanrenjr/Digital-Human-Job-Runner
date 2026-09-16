@@ -19,6 +19,8 @@ from database import (
     upsert_job,
 )
 from job_states import ACTIVE_STATUSES
+from outro_utils import resolve_outro_path
+from path_utils import local_path
 from settings import DEFAULT_VOICE_ID, JOBS_DIR, WINDOWS_OUTPUT_DIR
 
 if TYPE_CHECKING:
@@ -112,9 +114,10 @@ def get_running_job() -> Optional[dict]:
     return None
 
 
-def build_paths(job_id: str, output_type: str = "clean_video") -> dict:
+def build_paths(job_id: str, output_type: str = "clean_video", outro_id: str | None = None) -> dict:
     job_dir = JOBS_DIR / job_id
     is_voice = output_type == "voice_only"
+    desktop_name = f"{job_id}_{'final' if outro_id else 'clean_video'}.mp4"
     return {
         "job_dir": str(job_dir),
         "input_dir": str(job_dir / "input"),
@@ -132,17 +135,20 @@ def build_paths(job_id: str, output_type: str = "clean_video") -> dict:
         "voice_profile_json": str(job_dir / "input/voice_profile.json"),
         "voice_reference_snapshot": str(job_dir / "input/voice_reference.wav"),
         "voice_prompt_txt": str(job_dir / "input/voice_prompt.txt"),
+        "outro_snapshot": str(job_dir / "input/outro.mp4"),
         "voice_wav": str(job_dir / "output/voice.wav"),
         "voice_for_latentsync_wav": str(job_dir / "output/voice_for_latentsync.wav"),
         "clean_video": None if is_voice else str(job_dir / "output/clean_video.mp4"),
-        "final_video": None,
+        "final_video": None if is_voice else str(job_dir / "output/final_video.mp4"),
         "run_log": str(job_dir / "logs/run.log"),
         "windows_desktop_output": str(
             WINDOWS_OUTPUT_DIR / f"{job_id}_voice.wav"
-            if is_voice else WINDOWS_OUTPUT_DIR / f"{job_id}_clean_video.mp4"
+            if is_voice else WINDOWS_OUTPUT_DIR / desktop_name
         ),
         "subtitle_lines_txt": str(job_dir / "output/subtitle_lines.txt"),
         "script_meta_json": str(job_dir / "output/script_meta.json"),
+        "captions_json": str(job_dir / "output/captions.json"),
+        "captions_ass": str(job_dir / "output/captions.ass"),
     }
 
 
@@ -153,12 +159,7 @@ def _normalize_keywords(raw) -> list:
 
 
 def _host_path(value: str | Path) -> Path:
-    raw = str(value or "")
-    if raw.startswith("/mnt/") and len(raw) > 7 and raw[6] == "/":
-        drive = raw[5].upper()
-        rest = raw[7:].replace("/", "\\")
-        return Path(f"{drive}:\\{rest}")
-    return Path(raw)
+    return local_path(value)
 
 
 def _wsl_path(value: str | Path) -> str:
@@ -180,7 +181,11 @@ def _snapshot_file(source: str | Path, destination: Path) -> None:
         shutil.copy2(src, destination)
 
 
-def create_job(req: JobCreateRequest, voice_data: dict | None = None) -> dict:
+def create_job(
+    req: JobCreateRequest,
+    voice_data: dict | None = None,
+    outro_data: dict | None = None,
+) -> dict:
     # Microseconds prevent collisions when the UI submits twice in one second.
     job_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_video_job"
     job_dir = JOBS_DIR / job_id
@@ -221,6 +226,9 @@ def create_job(req: JobCreateRequest, voice_data: dict | None = None) -> dict:
         "voice_revision": voice_data.get("revision"),
         "voice_training_status": voice_data.get("training_status"),
         "output_type": req.output_type,
+        "outro_id": req.outro_id if req.output_type == "clean_video" else None,
+        "outro_name": (outro_data or {}).get("name", "") if req.output_type == "clean_video" else "",
+        "subtitle_enabled": req.subtitle_enabled if req.output_type == "clean_video" else False,
         "shutdown_after_done": req.shutdown_after_done,
         "created_at": _now_iso(),
         "started_at": None,
@@ -233,7 +241,7 @@ def create_job(req: JobCreateRequest, voice_data: dict | None = None) -> dict:
             "percent": 0,
             "message": "Waiting to start",
         },
-        "paths": build_paths(job_id, req.output_type),
+        "paths": build_paths(job_id, req.output_type, req.outro_id),
     }
 
     # Snapshot dependencies before the job becomes visible to the queue.
@@ -243,6 +251,9 @@ def create_job(req: JobCreateRequest, voice_data: dict | None = None) -> dict:
         if not background:
             raise FileNotFoundError(f"背景素材不存在：{job['background_id']}")
         _snapshot_file(background.get("path", ""), Path(job["paths"]["background_snapshot"]))
+
+    if outro_data and job.get("outro_id"):
+        _snapshot_file(resolve_outro_path(outro_data), Path(job["paths"]["outro_snapshot"]))
 
     reference = job.get("voice_reference_wav_path")
     if reference:
@@ -295,7 +306,8 @@ def duplicate_job(source: dict) -> dict:
             "voice_cfg", "voice_inference_timesteps", "voice_text_normalize",
             "voice_reference_cleanup", "voice_retry_badcase",
             "voice_checkpoint_path", "voice_reference_wav_path", "voice_reference_text",
-            "voice_revision", "voice_training_status", "output_type", "shutdown_after_done",
+            "voice_revision", "voice_training_status", "output_type", "subtitle_enabled", "shutdown_after_done",
+            "outro_id", "outro_name",
         )
     }
     job.update({
@@ -306,7 +318,7 @@ def duplicate_job(source: dict) -> dict:
         "finished_at": None,
         "error_message": None,
         "progress": {"stage": "pending", "current_window": 0, "total_windows": 0, "percent": 0, "message": "Waiting to start"},
-        "paths": build_paths(job_id, job.get("output_type", "clean_video")),
+        "paths": build_paths(job_id, job.get("output_type", "clean_video"), source.get("outro_id")),
     })
 
     source_paths = source.get("paths", {})

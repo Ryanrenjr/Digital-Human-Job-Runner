@@ -1,0 +1,16 @@
+[
+  {
+    "id": "earth_science",
+    "name": "地球科学账号片尾",
+    "description": "用于地球科学账号的视频片尾。",
+    "path": "assets/outros/earth_science_outro.mp4",
+    "duration": 5.035
+  },
+  {
+    "id": "intelligent_development",
+    "name": "智能开发账号片尾",
+    "description": "用于智能开发账号的视频片尾。",
+    "path": "assets/outros/intelligent_development_outro.mp4",
+    "duration": 4.042
+  }
+]
