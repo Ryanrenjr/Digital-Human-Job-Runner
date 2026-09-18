@@ -175,11 +175,6 @@ def _get_readiness(force: bool = False) -> dict:
         f"项目、模型和环境 {LATENTSYNC_ENV} 已配置",
         f"确认 {latent_ckpt} 存在，并创建环境 {LATENTSYNC_ENV}。",
     ))
-    checks.append(_check(
-        "ollama", "本地模型服务",
-        _command_exists("ollama"),
-        "Ollama 可用", "安装 Ollama；不使用智能文案助手时可以暂时忽略。", required=False,
-    ))
     try:
         free_bytes = shutil.disk_usage(AI_WORKSPACE).free
         disk_ok = free_bytes >= MIN_FREE_DISK_BYTES

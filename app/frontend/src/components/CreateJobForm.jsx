@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { BackgroundPicker }    from './BackgroundPicker'
-import { AIScriptAssistant }   from './AIScriptAssistant'
 import {
   CHINESE_DIALECTS,
   VOICE_LANGUAGES,
@@ -35,11 +34,6 @@ const INITIAL = {
   outro_id: null,
   subtitle_enabled: true,
   shutdown_after_done: false,
-  // AI-generated extras (sent with job create but not shown as form fields)
-  subtitle_lines: null,
-  opening_hook: null,
-  script_source: null,
-  script_model: null,
 }
 
 export function CreateJobForm({
@@ -140,30 +134,9 @@ export function CreateJobForm({
     onDeleteBackground(bgId)
   }
 
-  const handleAiApply = (result) => {
-    setFields(f => ({
-      ...f,
-      title:         result.title    || f.title,
-      subtitle:      result.subtitle || f.subtitle,
-      keywords:      Array.isArray(result.keywords)
-                       ? result.keywords.join(', ')
-                       : (result.keywords || f.keywords),
-      script:        result.script   || f.script,
-      subtitle_lines: result.subtitle_lines || null,
-      opening_hook:   result.opening_hook   || null,
-      script_source:  result.script_source  || null,
-      script_model:   result.script_model   || null,
-    }))
-    // Clear any validation errors that were blocking
-    setErrors({})
-  }
-
   return (
     <div className="card">
       <div className="card-title">{t.form.cardTitle}</div>
-
-      {/* AI Script Assistant — collapsible, optional */}
-      <AIScriptAssistant onApply={handleAiApply} t={t} />
 
       <div className="form-group">
         <label className="form-label">{t.form.title} <span className="req">*</span></label>

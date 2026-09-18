@@ -16,6 +16,15 @@ COMMON_WORD_PAIRS = frozenset({
     "观察", "连贯", "停顿", "自然", "以及", "阅读", "习惯", "效果", "实际",
 })
 
+LEADING_CLOSING_PUNCTUATION = frozenset("，。！？；：、,.!?;:)]}》」』”’")
+LATIN_TOKEN_RE = re.compile(r"[A-Za-z0-9]+(?:[’'-][A-Za-z0-9]+)*")
+LATIN_PHRASE_RE = re.compile(
+    r"[A-Za-z0-9]+(?:[’'-][A-Za-z0-9]+)*(?:\s+[A-Za-z0-9]+(?:[’'-][A-Za-z0-9]+)*)+"
+)
+LATIN_PAIR_RE = re.compile(
+    r"[A-Za-z0-9]+(?:[’'-][A-Za-z0-9]+)*\s+[A-Za-z0-9]+(?:[’'-][A-Za-z0-9]+)*"
+)
+
 
 def ass_time(seconds: float) -> str:
     total_cs = max(0, round(float(seconds) * 100))
@@ -52,11 +61,46 @@ def _pick_caption_break(text: str, target: int, max_chars: int) -> int:
         target = max(candidates)
     else:
         target = max(1, min(len(text) - 1, target, max_chars))
+    # Keep short English phrases together when possible. This prevents a
+    # phrase such as "British citizen" from flashing as two tiny captions.
+    for phrase in LATIN_PAIR_RE.finditer(text):
+        if phrase.start() < target < phrase.end() and len(phrase.group()) <= max_chars + 10:
+            target = phrase.start() if phrase.start() >= 4 else phrase.end()
+            break
+    else:
+        for phrase in LATIN_PHRASE_RE.finditer(text):
+            if phrase.start() < target < phrase.end() and len(phrase.group()) <= max_chars + 8:
+                target = phrase.start() if phrase.start() >= 4 else phrase.end()
+                break
+
+    # Never cut through an ASCII word or number. This matters for names,
+    # product terms, visa types, and English phrases embedded in Chinese.
+    for token in LATIN_TOKEN_RE.finditer(text):
+        if token.start() < target < token.end():
+            target = token.start() if token.start() >= 4 else token.end()
+            break
+
     # Move a forced break by one character when it would split a common word.
     for candidate in (target, target - 1, target + 1, target - 2, target + 2):
         if 4 <= candidate < len(text) and text[candidate - 1:candidate + 1] not in COMMON_WORD_PAIRS:
             return candidate
     return target
+
+
+def normalize_caption_items(captions: list[dict]) -> list[dict]:
+    """Keep closing punctuation with the preceding caption event."""
+    normalized: list[dict] = []
+    for item in captions:
+        current = dict(item)
+        text = re.sub(r"\s+", " ", str(current.get("text") or current.get("speechText") or "")).strip()
+        while text and text[0] in LEADING_CLOSING_PUNCTUATION:
+            if normalized:
+                normalized[-1]["text"] = normalized[-1]["text"].rstrip() + text[0]
+            text = text[1:].lstrip()
+        current["text"] = text
+        if text:
+            normalized.append(current)
+    return normalized
 
 
 def split_caption_text(text: str, max_chars: int = 13) -> list[str]:
@@ -107,7 +151,7 @@ def build_ass(captions: list[dict], *, font_name: str, width: int, height: int) 
     # divided into timed caption events below.
     max_chars = 13 if width <= 900 else 20
     events: list[str] = []
-    for item in captions:
+    for item in normalize_caption_items(captions):
         try:
             start = float(item.get("start", 0))
             end = float(item.get("end", 0))
